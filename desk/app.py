@@ -23,10 +23,11 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Input, Static
 
+from . import focus
+
 PANELS = ("board", "focus", "capture")
 
 # palette (kept here until the shared `desk` core is extracted in a later pass)
-TOMATO = "#ff6347"
 ACCENT = "#2dd4bf"
 
 
@@ -41,6 +42,9 @@ class Deck(App):
         Binding("f", "expand('focus')", "Focus", priority=True),
         Binding("c", "expand('capture')", "Capture", priority=True),
         Binding("escape", "collapse", "Strip", priority=True),
+        ("space", "pomo_toggle", "Start/Pause"),
+        ("s", "pomo_skip", "Skip"),
+        ("r", "pomo_reset", "Reset"),
         ("q", "quit", "Quit"),
     ]
 
@@ -58,6 +62,7 @@ class Deck(App):
             yield Input(placeholder="type a thought, hit enter…", id="cap-input")
 
     def on_mount(self) -> None:
+        self.pomo = focus.Pomodoro.load()
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -66,6 +71,11 @@ class Deck(App):
 
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
+        completed = self.pomo.tick()
+        if completed:
+            self.bell()
+        if self.pomo.running or completed:
+            self.pomo.save()          # keep remaining fresh across restarts
         self._paint()
 
     # ---- expand / collapse ------------------------------------------------
@@ -92,21 +102,31 @@ class Deck(App):
         self.query_one("#stage").add_class("hidden")
         self._paint()
 
+    def action_pomo_toggle(self) -> None:
+        self.pomo.toggle(); self.pomo.save(); self._paint()
+
+    def action_pomo_skip(self) -> None:
+        self.pomo.skip(); self.pomo.save(); self._paint()
+
+    def action_pomo_reset(self) -> None:
+        self.pomo.reset(); self.pomo.save(); self._paint()
+
     # ---- rendering (placeholder content until later increments) -----------
     def _tiles(self) -> dict[str, str]:
         """The minimized live tiles. Real data arrives with each panel's
         increment; for now they are honest placeholders."""
         return {
             "board": "› [dim](no board loaded)[/dim]",
-            "focus": f"[{TOMATO}]|| 25:00[/]  [dim]○○○○○[/dim]",
+            "focus": focus.render_tile(self.pomo),
             "capture": "[dim]› capture a thought…[/dim]",
         }
 
     def _body(self, which: str) -> str:
-        title = {"board": "BOARD", "focus": "FOCUS", "capture": "CAPTURE"}[which]
+        if which == "focus":
+            return focus.render_body(self.pomo)
+        title = {"board": "BOARD", "capture": "CAPTURE"}[which]
         stub = {
             "board": "reads your taskboard board.json — arrives in increment 3",
-            "focus": "braille pomodoro clock — arrives in increment 2",
             "capture": "rotating prompts + Obsidian daily note — arrives in increment 4",
         }[which]
         return f"[bold {ACCENT}]{title}[/]\n\n[dim]{stub}[/dim]"
