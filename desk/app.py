@@ -23,6 +23,7 @@ from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
 from textual.widgets import Input, Static
 
+from . import board
 from . import focus
 
 PANELS = ("board", "focus", "capture")
@@ -63,6 +64,7 @@ class Deck(App):
 
     def on_mount(self) -> None:
         self.pomo = focus.Pomodoro.load()
+        self.board_data = board.load()
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -71,6 +73,7 @@ class Deck(App):
 
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
+        self.board_data = board.load()          # reflect taskboard edits within ~1s
         completed = self.pomo.tick()
         if completed:
             self.bell()
@@ -116,7 +119,7 @@ class Deck(App):
         """The minimized live tiles. Real data arrives with each panel's
         increment; for now they are honest placeholders."""
         return {
-            "board": "› [dim](no board loaded)[/dim]",
+            "board": board.render_tile(self.board_data),
             "focus": focus.render_tile(self.pomo),
             "capture": "[dim]› capture a thought…[/dim]",
         }
@@ -124,12 +127,10 @@ class Deck(App):
     def _body(self, which: str) -> str:
         if which == "focus":
             return focus.render_body(self.pomo)
-        title = {"board": "BOARD", "capture": "CAPTURE"}[which]
-        stub = {
-            "board": "reads your taskboard board.json — arrives in increment 3",
-            "capture": "rotating prompts + Obsidian daily note — arrives in increment 4",
-        }[which]
-        return f"[bold {ACCENT}]{title}[/]\n\n[dim]{stub}[/dim]"
+        if which == "board":
+            return board.render_body(self.board_data)
+        return (f"[bold {ACCENT}]CAPTURE[/]\n\n"
+                "[dim]rotating prompts + Obsidian daily note — arrives in increment 4[/dim]")
 
     def _paint(self) -> None:
         tiles = self._tiles()
