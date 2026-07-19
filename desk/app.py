@@ -24,6 +24,7 @@ from textual.reactive import reactive
 from textual.widgets import Input, Static
 
 from . import board
+from . import capture
 from . import focus
 
 PANELS = ("board", "focus", "capture")
@@ -65,6 +66,8 @@ class Deck(App):
     def on_mount(self) -> None:
         self.pomo = focus.Pomodoro.load()
         self.board_data = board.load()
+        self._prompt_i = 0
+        self._last_saved = None
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -92,6 +95,7 @@ class Deck(App):
             inp.display = True
             inp.can_focus = True
             inp.focus()
+            inp.placeholder = capture.pick_prompt(self._prompt_i)
         else:
             inp.display = False
             inp.can_focus = False
@@ -114,6 +118,21 @@ class Deck(App):
     def action_pomo_reset(self) -> None:
         self.pomo.reset(); self.pomo.save(); self._paint()
 
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        text = event.value.strip()
+        if text:
+            try:
+                note = capture.append_capture(text)
+                self._last_saved = note.name
+                self.notify(f"saved to {note.name}")
+            except Exception as exc:                      # vault missing, etc.
+                self._last_saved = None
+                self.notify(f"couldn't save: {exc}", severity="error")
+        event.input.value = ""
+        self._prompt_i += 1
+        event.input.placeholder = capture.pick_prompt(self._prompt_i)
+        self._paint()
+
     # ---- rendering (placeholder content until later increments) -----------
     def _tiles(self) -> dict[str, str]:
         """The minimized live tiles. Real data arrives with each panel's
@@ -121,7 +140,7 @@ class Deck(App):
         return {
             "board": board.render_tile(self.board_data),
             "focus": focus.render_tile(self.pomo),
-            "capture": "[dim]› capture a thought…[/dim]",
+            "capture": capture.render_tile(capture.pick_prompt(self._prompt_i)),
         }
 
     def _body(self, which: str) -> str:
@@ -129,8 +148,7 @@ class Deck(App):
             return focus.render_body(self.pomo)
         if which == "board":
             return board.render_body(self.board_data)
-        return (f"[bold {ACCENT}]CAPTURE[/]\n\n"
-                "[dim]rotating prompts + Obsidian daily note — arrives in increment 4[/dim]")
+        return capture.render_body(capture.pick_prompt(self._prompt_i), self._last_saved)
 
     def _paint(self) -> None:
         tiles = self._tiles()
