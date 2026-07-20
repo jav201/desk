@@ -16,6 +16,7 @@ from rich.markup import escape as esc
 CONFIG_PATH = Path.home() / ".desk" / "config.json"
 DEFAULT_VAULT = Path.home() / "Obsidian"
 DEFAULT_SUBDIR = "Daily"
+FALLBACK_PATH = Path.home() / ".desk" / "captures.md"
 CAPTURES_HEADING = "## Captures"
 
 PROMPTS = [
@@ -46,15 +47,15 @@ def pick_prompt(i: int) -> str:
     return PROMPTS[i % len(PROMPTS)]
 
 
-def _insert_capture(content: str, line: str) -> str:
-    """Append `line` at the end of the '## Captures' section, creating the
-    heading (at end of the note) if it is absent."""
+def _insert_under(content: str, heading: str, line: str) -> str:
+    """Append `line` at the end of the given `heading`'s section, creating the
+    heading (at the end of the file) if it is absent."""
     lines = content.splitlines()
-    idx = next((i for i, l in enumerate(lines) if l.strip() == CAPTURES_HEADING), None)
+    idx = next((i for i, l in enumerate(lines) if l.strip() == heading), None)
     if idx is None:
         base = content.rstrip("\n")
         sep = "\n\n" if base else ""
-        return f"{base}{sep}{CAPTURES_HEADING}\n{line}\n"
+        return f"{base}{sep}{heading}\n{line}\n"
     end = len(lines)
     for i in range(idx + 1, len(lines)):
         if lines[i].startswith("#"):
@@ -68,20 +69,29 @@ def _insert_capture(content: str, line: str) -> str:
 
 def append_capture(text: str, cfg: dict | None = None,
                    now: datetime | None = None) -> Path:
-    """Append `- YYYY-MM-DD HH:MM  text` under today's note's Captures heading,
-    creating the note (with an H1 date header) and the heading if needed. Returns
-    the note path. Raises FileNotFoundError if the vault folder does not exist."""
+    """Append `- YYYY-MM-DD HH:MM  text` and return the file written.
+
+    If the configured vault folder exists, write under a '## Captures' heading in
+    <vault>/Daily/YYYY-MM-DD.md (creating the note + heading as needed). If the
+    vault is NOT available (e.g. on a machine without it), fall back to a single
+    local file ~/.desk/captures.md, grouped under a per-day '## YYYY-MM-DD'
+    heading — so captures are never lost. Never raises for a missing vault.
+    """
     cfg = cfg or load_config()
     now = now or datetime.now()
-    vault: Path = cfg["vault"]
-    if not vault.is_dir():
-        raise FileNotFoundError(
-            f"vault not found: {vault} — set it in ~/.desk/config.json")
-    path = vault / cfg["daily_subdir"] / f"{now:%Y-%m-%d}.md"
-    path.parent.mkdir(parents=True, exist_ok=True)
     line = f"- {now:%Y-%m-%d %H:%M}  {text.strip()}"
-    content = path.read_text(encoding="utf-8") if path.exists() else f"# {now:%Y-%m-%d}\n"
-    path.write_text(_insert_capture(content, line), encoding="utf-8")
+    vault: Path = cfg["vault"]
+    if vault.is_dir():
+        path = vault / cfg["daily_subdir"] / f"{now:%Y-%m-%d}.md"
+        heading = CAPTURES_HEADING
+        seed = f"# {now:%Y-%m-%d}\n"
+    else:
+        path = FALLBACK_PATH
+        heading = f"## {now:%Y-%m-%d}"
+        seed = "# desk captures\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = path.read_text(encoding="utf-8") if path.exists() else seed
+    path.write_text(_insert_under(content, heading, line), encoding="utf-8")
     return path
 
 

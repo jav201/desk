@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-import pytest
-
 from desk import capture
 from desk.app import Deck
 
@@ -50,10 +48,27 @@ def test_inserts_before_a_later_section(tmp_path):
     assert cap_i < old_i < new_i < log_i
 
 
-def test_missing_vault_raises(tmp_path):
+def test_missing_vault_falls_back_to_local_md(tmp_path, monkeypatch):
+    fb = tmp_path / "captures.md"
+    monkeypatch.setattr(capture, "FALLBACK_PATH", fb)
+    cfg = {"vault": tmp_path / "nope", "daily_subdir": "Daily"}   # vault absent
+    out = capture.append_capture("portable note", cfg=cfg, now=NOW)
+    assert out == fb
+    text = fb.read_text(encoding="utf-8")
+    assert "## 2026-07-19" in text
+    assert "- 2026-07-19 15:42  portable note" in text
+
+
+def test_fallback_groups_multiple_days(tmp_path, monkeypatch):
+    fb = tmp_path / "captures.md"
+    monkeypatch.setattr(capture, "FALLBACK_PATH", fb)
     cfg = {"vault": tmp_path / "nope", "daily_subdir": "Daily"}
-    with pytest.raises(FileNotFoundError):
-        capture.append_capture("x", cfg=cfg, now=NOW)
+    capture.append_capture("day one a", cfg=cfg, now=NOW)
+    capture.append_capture("day one b", cfg=cfg, now=datetime(2026, 7, 19, 16, 0))
+    capture.append_capture("day two", cfg=cfg, now=datetime(2026, 7, 20, 9, 0))
+    text = fb.read_text(encoding="utf-8")
+    assert text.count("## 2026-07-19") == 1 and "## 2026-07-20" in text
+    assert text.index("day one a") < text.index("day one b") < text.index("day two")
 
 
 def test_prompt_rotates():
