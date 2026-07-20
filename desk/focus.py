@@ -13,6 +13,7 @@ from pathlib import Path
 
 WORK_SECONDS = 25 * 60
 POMO_SET = 5
+POMO_MAX = 12
 STATE_PATH = Path.home() / ".desk" / "state.json"
 
 # ---- braille clock font (6x8 dots, upscaled 2x, then 2x4-dot braille) -------
@@ -93,6 +94,7 @@ class Pomodoro:
     remaining: int = WORK_SECONDS
     running: bool = False
     completed: int = 0                 # pomodoros finished in the current set
+    target: int = POMO_SET             # size of the set (adjustable, 1..POMO_MAX)
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Pomodoro":
@@ -100,10 +102,12 @@ class Pomodoro:
         path = path or STATE_PATH
         try:
             d = json.loads(path.read_text(encoding="utf-8"))
+            target = max(1, min(POMO_MAX, int(d.get("target", POMO_SET))))
             return cls(
                 remaining=max(0, min(WORK_SECONDS, int(d.get("remaining", WORK_SECONDS)))),
                 running=bool(d.get("running", False)),
-                completed=max(0, min(POMO_SET, int(d.get("completed", 0)))),
+                completed=max(0, min(target, int(d.get("completed", 0)))),
+                target=target,
             )
         except Exception:
             return cls()
@@ -124,7 +128,7 @@ class Pomodoro:
             self.remaining -= 1
             if self.remaining == 0:
                 self.running = False
-                self.completed = min(POMO_SET, self.completed + 1)
+                self.completed = min(self.target, self.completed + 1)
                 return True
         return False
 
@@ -135,7 +139,7 @@ class Pomodoro:
 
     def skip(self) -> None:
         self.running = False
-        self.completed = min(POMO_SET, self.completed + 1)
+        self.completed = min(self.target, self.completed + 1)
         self.remaining = WORK_SECONDS
 
     def reset(self) -> None:
@@ -143,12 +147,20 @@ class Pomodoro:
         self.remaining = WORK_SECONDS
         self.completed = 0
 
+    def add(self) -> None:
+        self.target = min(POMO_MAX, self.target + 1)
+
+    def remove(self) -> None:
+        self.target = max(1, self.target - 1)
+        if self.completed > self.target:
+            self.completed = self.target
+
 
 # ---- renderers (Textual markup strings) -------------------------------------
 def render_tile(pomo: Pomodoro) -> str:
     hexv = temp_hex(pomo.elapsed_frac)
     mark = "▸" if pomo.running else "||"
-    return f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]  [dim]{dots(pomo.completed)}[/dim]"
+    return f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
 
 
 def _thermometer(frac: float, width: int = 24) -> tuple[str, str]:
@@ -168,8 +180,9 @@ def render_body(pomo: Pomodoro) -> str:
     out.append("")
     out.append(f"    [dim]cool[/dim] {cells} [dim]hot[/dim]")
     out.append(f"         {mrow}")
-    out.append(f"    [{hexv}]{dots(pomo.completed)}[/]  "
-               f"[dim]pomodoro {min(pomo.completed + 1, POMO_SET)} of {POMO_SET} · {state}[/dim]")
+    out.append(f"    [{hexv}]{dots(pomo.completed, pomo.target)}[/]  "
+               f"[dim]pomodoro {min(pomo.completed + 1, pomo.target)} of {pomo.target} · {state}[/dim]")
     out.append("")
-    out.append("    [#ffd166]space[/] start/pause    [#ffd166]s[/] skip    [#ffd166]r[/] reset")
+    out.append("    [#ffd166]space[/] start/pause   [#ffd166]s[/] skip   [#ffd166]r[/] reset")
+    out.append(f"    [#ffd166]+[/] / [#ffd166]-[/] pomodoros in the set  [dim]· now {pomo.target}[/dim]")
     return "\n".join(out)

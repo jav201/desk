@@ -53,3 +53,39 @@ async def test_every_panel_has_a_placeholder_body():
             await pilot.pause()
             body = str(app.query_one("#stage-body").render())
             assert name.upper() in body.upper()
+
+
+async def test_footer_is_present_for_key_hints():
+    from textual.widgets import Footer
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert app.query(Footer)                       # keys are visible somewhere
+
+
+async def test_pomodoro_count_keys(tmp_path, monkeypatch):
+    from desk import focus
+    monkeypatch.setattr(focus, "STATE_PATH", tmp_path / "s.json")
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        base = app.pomo.target
+        await pilot.press("plus")
+        await pilot.pause()
+        assert app.pomo.target == base + 1
+        await pilot.press("minus")
+        await pilot.press("minus")
+        await pilot.pause()
+        assert app.pomo.target == base - 1
+
+
+async def test_open_board_spawns_terminal(monkeypatch):
+    calls = []
+    monkeypatch.setattr("shutil.which", lambda n: "wezterm")
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: calls.append((a, k)) or None)
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("o")
+        await pilot.pause()
+    assert calls and "taskboard" in str(calls[0])
