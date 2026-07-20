@@ -17,7 +17,7 @@ Panels:
 - **Board** — your current *doing* task and a mini kanban, read live from the [taskboard](https://github.com/jav201/taskboard) app.
 - **Focus** — a pomodoro whose clock is a high-res braille dot-matrix, coloured by a cool→hot thermometer of elapsed time.
 - **Capture** — a rotating prompt; press enter and the line lands in your Obsidian daily note (or a local file when the vault isn't around).
-- **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install "desk[record]"`).
+- **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install -e ".[record]"`).
 
 ## Install
 
@@ -35,7 +35,7 @@ cd taskboard
 pip install -e .
 ```
 
-Prefer isolated installs? Use `pipx install <path>` in each folder, or `pip install git+https://github.com/jav201/desk`.
+Prefer isolated installs? Use `pipx install <path>` in each folder, or `pip install git+https://github.com/jav201/desk` (add the recorder with `pip install "desk[record] @ git+https://github.com/jav201/desk"`).
 
 Run it:
 
@@ -82,8 +82,10 @@ desk
 Capture a meeting and get a transcript — **fully local and offline** (no accounts, no cloud, nothing leaves your machine). Opt-in install:
 
 ```bash
-pip install "desk[record]"     # adds soundcard + faster-whisper
+pip install -e ".[record]"     # from the desk folder; adds soundcard + faster-whisper
 ```
+
+Transcripts are saved under `~/.desk/transcripts/<timestamp>/` (`audio.wav` + `transcript.md`). Press **`t`** in desk to open that folder in your file manager.
 
 - **`m`** opens the Record panel, **`space`** starts/stops. On stop, a local Whisper model transcribes the audio (downloads once, ~150 MB) and saves it as markdown — the UI never freezes (runs in a background worker).
 - Captures **system audio + your mic** (so it hears everyone on the call), mixed to 16 kHz mono.
