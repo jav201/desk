@@ -26,8 +26,9 @@ from textual.widgets import Footer, Input, Static
 from . import board
 from . import capture
 from . import focus
+from . import record
 
-PANELS = ("board", "focus", "capture")
+PANELS = ("board", "focus", "capture", "record")
 BOARD_POLL_TICKS = 5          # auto-reload board.json every ~5s; F5 forces now
 
 # palette (kept here until the shared `desk` core is extracted in a later pass)
@@ -45,11 +46,12 @@ class Deck(App):
         Binding("f", "expand('focus')", "Focus", priority=True),
         Binding("c", "expand('capture')", "Capture", priority=True),
         Binding("escape", "collapse", "Strip", priority=True),
+        Binding("m", "expand('record')", "Record", priority=True),
         ("o", "open_board", "Open board"),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
         # pomodoro controls — shown inside the Focus panel, hidden from the footer
-        Binding("space", "pomo_toggle", "Start/Pause", show=False),
+        Binding("space", "primary", "Start/Pause", show=False),
         Binding("s", "pomo_skip", "Skip", show=False),
         Binding("r", "pomo_reset", "Reset", show=False),
         Binding("plus", "pomo_add", "More pomo", show=False),
@@ -65,6 +67,7 @@ class Deck(App):
             yield Static(id="tile-board", classes="tile")
             yield Static(id="tile-focus", classes="tile")
             yield Static(id="tile-capture", classes="tile")
+            yield Static(id="tile-record", classes="tile")
             yield Static(id="clock")
         with Vertical(id="stage", classes="hidden"):
             yield Static(id="stage-body")
@@ -77,6 +80,9 @@ class Deck(App):
         self._prompt_i = 0
         self._last_saved = None
         self._ticks = 0
+        self._rec = record.Recorder()
+        self._rec_state = "idle"
+        self._last_transcript = None
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -158,6 +164,55 @@ class Deck(App):
     def action_pomo_remove(self) -> None:
         self.pomo.remove(); self.pomo.save(); self._paint()
 
+    def action_primary(self) -> None:
+        """space: the main action of the current panel (record toggle in Record,
+        pomodoro start/pause elsewhere)."""
+        if self.mode == "record":
+            self._rec_toggle()
+        else:
+            self.action_pomo_toggle()
+
+    def _rec_toggle(self) -> None:
+        if not record.AVAILABLE:
+            self.notify("recording needs: pip install desk[record]", severity="warning")
+            return
+        if self._rec.running:
+            wav = self._rec.stop()
+            self._rec_state = "transcribing"
+            self._paint()
+            self.run_worker(lambda: self._run_transcription(wav), thread=True,
+                            exclusive=True, group="transcribe")
+        else:
+            try:
+                self._rec.start()
+                self._rec_state = "recording"
+            except Exception as exc:
+                self._rec_state = "idle"
+                self.notify(f"can't record: {exc}", severity="error")
+            self._paint()
+
+    def _run_transcription(self, wav) -> None:
+        """Runs in a worker thread — never blocks the UI."""
+        try:
+            if not wav:
+                raise RuntimeError("no audio captured")
+            from . import transcribe
+            text = transcribe.transcribe(wav)
+            transcribe.save_transcript(wav, text)
+            self.call_from_thread(self._on_transcribed, text, None)
+        except Exception as exc:
+            self.call_from_thread(self._on_transcribed, None, str(exc))
+
+    def _on_transcribed(self, text, err) -> None:
+        self._rec_state = "idle"
+        if err:
+            self._last_transcript = f"(error: {err})"
+            self.notify(f"transcription failed: {err}", severity="error")
+        else:
+            self._last_transcript = text or "(no speech detected)"
+            self.notify("transcript saved")
+        self._paint()
+
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
         if text:
@@ -181,6 +236,7 @@ class Deck(App):
             "board": board.render_tile(self.board_data),
             "focus": focus.render_tile(self.pomo),
             "capture": capture.render_tile(capture.pick_prompt(self._prompt_i)),
+            "record": record.render_tile(self._rec_state, self._rec.seconds, self._rec.level),
         }
 
     def _body(self, which: str) -> str:
@@ -188,6 +244,9 @@ class Deck(App):
             return focus.render_body(self.pomo)
         if which == "board":
             return board.render_body(self.board_data)
+        if which == "record":
+            return record.render_body(self._rec_state, self._rec.seconds,
+                                      self._rec.level, self._last_transcript)
         return capture.render_body(capture.pick_prompt(self._prompt_i), self._last_saved)
 
     def _paint(self) -> None:
@@ -195,9 +254,10 @@ class Deck(App):
         self.query_one("#tile-board", Static).update(tiles["board"])
         self.query_one("#tile-focus", Static).update(tiles["focus"])
         self.query_one("#tile-capture", Static).update(tiles["capture"])
+        self.query_one("#tile-record", Static).update(tiles["record"])
         self.query_one("#clock", Static).update(f"[dim]{self.clock}[/dim]")
         for name, wid in (("board", "#tile-board"), ("focus", "#tile-focus"),
-                          ("capture", "#tile-capture")):
+                          ("capture", "#tile-capture"), ("record", "#tile-record")):
             w = self.query_one(wid, Static)
             (w.add_class if self.mode == name else w.remove_class)("active-tile")
         if self.mode in PANELS:

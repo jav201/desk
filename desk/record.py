@@ -126,3 +126,48 @@ def _mix(a: Path, b: Path, out: Path) -> None:
             p.unlink()
         except OSError:
             pass
+
+
+# ---- panel rendering (Textual markup) --------------------------------------
+def _mmss(seconds: float) -> str:
+    s = int(seconds)
+    return f"{s // 60:02d}:{s % 60:02d}"
+
+
+def _meter(level: float, width: int = 20) -> str:
+    filled = max(0, min(width, int(level * 3 * width)))
+    return f"[#ff3b30]{'▊' * filled}[/][dim]{'░' * (width - filled)}[/dim]"
+
+
+def render_tile(state: str, seconds: float = 0.0, level: float = 0.0) -> str:
+    if not AVAILABLE:
+        return "[dim]● record  (pip install desk\\[record])[/dim]"
+    if state == "recording":
+        return f"[#ff3b30]● REC {_mmss(seconds)}[/]"
+    if state == "transcribing":
+        return "[#ffd166]◌ transcribing…[/]"
+    return "[dim]● record a meeting[/dim]"
+
+
+def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
+                last: str | None = None) -> str:
+    out = ["[bold #2dd4bf]RECORD[/]", ""]
+    if not AVAILABLE:
+        out += ["[dim]meeting recorder + local transcription[/dim]", "",
+                "[#ff8c42]not enabled[/] — install the optional extra:",
+                "[dim]  pip install desk\\[record][/dim]"]
+        return "\n".join(out)
+    if state == "recording":
+        out += [f"[#ff3b30]● recording[/]   {_mmss(seconds)}", "",
+                "  " + _meter(level), "",
+                "[dim]space stops and transcribes[/dim]"]
+    elif state == "transcribing":
+        out += ["[#ffd166]◌ transcribing…[/]   [dim](local whisper on CPU — a moment)[/dim]"]
+    else:
+        out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
+                "[#ffd166]space[/] start recording"]
+        if last:
+            preview = last[:220] + ("…" if len(last) > 220 else "")
+            out += ["", "[dim]last transcript:[/dim]", preview]
+    out += ["", "[#ff8c42]▲[/] [dim]recording may require participants' consent[/dim]"]
+    return "\n".join(out)
