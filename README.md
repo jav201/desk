@@ -93,6 +93,21 @@ Transcripts are saved under `~/.desk/transcripts/<timestamp>/` (`audio.wav` + `t
 - Saved under `~/.desk/transcripts/<timestamp>/` (`transcript.md` + `audio.wav`); auto-stop settings persist in `~/.desk/record.json`.
 - Without the extra installed, the panel simply says "install desk[record] to enable".
 
+### Offline / locked-down machines
+
+The model is fetched from Hugging Face on first use. Behind a **corporate TLS-inspecting proxy** you may hit `CERTIFICATE_VERIFY_FAILED` — trust the proxy's root CA (`setx SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` to a PEM) and the download works.
+
+Where huggingface.co is **blocked**, pre-fetch the model elsewhere and point desk at a local folder — set **`DESK_WHISPER_MODEL`** to a directory containing `config.json` + `model.bin` (+ tokenizer files):
+
+```powershell
+# on a connected machine
+huggingface-cli download Systran/faster-whisper-base --local-dir faster-whisper-base
+# copy that folder to the locked-down box (share / approved channel), then:
+setx DESK_WHISPER_MODEL "C:\models\faster-whisper-base"
+```
+
+`DESK_WHISPER_MODEL` also accepts a plain model name (`tiny.en` for a ~40 MB model). A local path loads with **zero network calls** — no proxy, cert, or allowlist involved. If there's genuinely no way to bring the model file onto the box, recording still works (the `audio.wav` is saved); transcription just can't run there.
+
 ## Frameless, always-on-top (desktop-widget mode)
 
 Textual can't remove the OS window chrome — the terminal does. Use [WezTerm](https://wezterm.org):
