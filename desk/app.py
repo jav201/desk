@@ -28,6 +28,7 @@ from . import capture
 from . import focus
 
 PANELS = ("board", "focus", "capture")
+BOARD_POLL_TICKS = 5          # auto-reload board.json every ~5s; F5 forces now
 
 # palette (kept here until the shared `desk` core is extracted in a later pass)
 ACCENT = "#2dd4bf"
@@ -47,6 +48,7 @@ class Deck(App):
         ("space", "pomo_toggle", "Start/Pause"),
         ("s", "pomo_skip", "Skip"),
         ("r", "pomo_reset", "Reset"),
+        ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
     ]
 
@@ -68,6 +70,7 @@ class Deck(App):
         self.board_data = board.load()
         self._prompt_i = 0
         self._last_saved = None
+        self._ticks = 0
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -76,7 +79,9 @@ class Deck(App):
 
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
-        self.board_data = board.load()          # reflect taskboard edits within ~1s
+        self._ticks += 1
+        if self._ticks % BOARD_POLL_TICKS == 0:
+            self.board_data = board.load()      # gentle auto-poll; F5 forces now
         completed = self.pomo.tick()
         if completed:
             self.bell()
@@ -108,6 +113,12 @@ class Deck(App):
         inp.can_focus = False
         self.query_one("#stage").add_class("hidden")
         self._paint()
+
+    def action_refresh(self) -> None:
+        """Reload the board from disk immediately (don't wait for the poll)."""
+        self.board_data = board.load()
+        self._paint()
+        self.notify("refreshed")
 
     def action_pomo_toggle(self) -> None:
         self.pomo.toggle(); self.pomo.save(); self._paint()

@@ -75,3 +75,23 @@ async def test_deck_board_panel(tmp_path, monkeypatch):
         assert "funnel copy" in body
         tile = str(app.query_one("#tile-board").render())
         assert "funnel copy" in tile
+
+
+async def test_refresh_reloads_board_immediately(tmp_path, monkeypatch):
+    """F5 picks up an external change to board.json without waiting for the poll."""
+    import json
+    p = tmp_path / "board.json"
+    p.write_text(json.dumps(
+        {"projects": [], "tasks": [{"id": "a", "title": "first", "status": "doing"}], "settings": {}}),
+        encoding="utf-8")
+    monkeypatch.setattr(board, "BOARD_PATH", p)
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        assert "first" in str(app.query_one("#tile-board").render())
+        p.write_text(json.dumps(
+            {"projects": [], "tasks": [{"id": "b", "title": "second", "status": "doing"}], "settings": {}}),
+            encoding="utf-8")
+        await pilot.press("f5")
+        await pilot.pause()
+        assert "second" in str(app.query_one("#tile-board").render())
