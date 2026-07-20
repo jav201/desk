@@ -1,5 +1,16 @@
 # desk
 
+<p align="center">
+  <img src="docs/desk-focus.gif" width="540" alt="desk — focus pomodoro"><br>
+  <sub>Focus — a braille pomodoro clock that warms cool→hot as the interval runs down.</sub>
+</p>
+
+<p align="center">
+  <img src="docs/desk-board.png" width="46%" alt="board panel">
+  <img src="docs/desk-capture.png" width="46%" alt="capture panel">
+</p>
+
+
 A frameless, always-on-top **widget deck** for the terminal — one window, a compact live strip that expands into panels on demand. Built with [Textual](https://textual.textualize.io/).
 
 Panels:
