@@ -133,3 +133,73 @@ async def test_record_start_sets_recording(monkeypatch):
         await pilot.press("space")
         await pilot.pause()
         assert app._rec_state == "recording" and app._rec.running is True
+
+
+async def test_auto_toggle_key_in_record(tmp_path, monkeypatch):
+    from desk import record
+    monkeypatch.setattr(record, "RECORD_SETTINGS_PATH", tmp_path / "record.json")
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        before = app._auto_on
+        await pilot.press("a")
+        await pilot.pause()
+        assert app._auto_on is (not before)
+
+
+async def test_auto_adjust_keys_in_record(tmp_path, monkeypatch):
+    from desk import record
+    monkeypatch.setattr(record, "RECORD_SETTINGS_PATH", tmp_path / "record.json")
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        base = app._auto_min
+        await pilot.press("plus")
+        await pilot.pause()
+        assert app._auto_min == base + record.AUTO_STEP
+        await pilot.press("minus"); await pilot.press("minus")
+        await pilot.pause()
+        assert app._auto_min == base - record.AUTO_STEP
+
+
+async def test_plus_minus_still_pomodoro_in_focus(tmp_path, monkeypatch):
+    from desk import focus, record
+    monkeypatch.setattr(focus, "STATE_PATH", tmp_path / "s.json")
+    monkeypatch.setattr(record, "RECORD_SETTINGS_PATH", tmp_path / "r.json")
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("f")
+        await pilot.pause()
+        base = app.pomo.target
+        await pilot.press("plus")
+        await pilot.pause()
+        assert app.pomo.target == base + 1
+
+
+async def test_autostop_triggers_stop(tmp_path, monkeypatch):
+    from desk import record
+    monkeypatch.setattr(record, "RECORD_SETTINGS_PATH", tmp_path / "record.json")
+    monkeypatch.setattr(record, "AVAILABLE", True)
+
+    class FakeRec:
+        def __init__(self, *a, **k):
+            self.running = False; self.seconds = 0.0; self.level = 0.0
+        def start(self): self.running = True
+        def stop(self): self.running = False; return None
+
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._rec = FakeRec(); app._auto_on = True; app._auto_min = 1
+        await pilot.press("m"); await pilot.pause()
+        await pilot.press("space"); await pilot.pause()
+        assert app._rec_state == "recording"
+        app._rec.seconds = 61                     # past the 1-min threshold
+        app._tick()                                # auto-stop should fire
+        await pilot.pause()
+        assert app._rec_state in ("transcribing", "idle")

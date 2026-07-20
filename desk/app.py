@@ -57,6 +57,7 @@ class Deck(App):
         Binding("plus", "pomo_add", "More pomo", show=False),
         Binding("equals_sign", "pomo_add", "More pomo", show=False),
         Binding("minus", "pomo_remove", "Fewer pomo", show=False),
+        Binding("a", "auto_toggle", "Auto-stop", show=False),
     ]
 
     mode = reactive("strip")
@@ -83,6 +84,9 @@ class Deck(App):
         self._rec = record.Recorder()
         self._rec_state = "idle"
         self._last_transcript = None
+        _rs = record.load_settings()
+        self._auto_on = _rs["enabled"]
+        self._auto_min = _rs["minutes"]
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
@@ -99,6 +103,9 @@ class Deck(App):
             self.bell()
         if self.pomo.running or completed:
             self.pomo.save()          # keep remaining fresh across restarts
+        if self._rec_state == "recording" and record.should_autostop(
+                self._rec.seconds, self._auto_on, self._auto_min):
+            self._rec_toggle()          # auto-finish: stop + transcribe
         self._paint()
 
     # ---- expand / collapse ------------------------------------------------
@@ -159,10 +166,23 @@ class Deck(App):
         self.pomo.reset(); self.pomo.save(); self._paint()
 
     def action_pomo_add(self) -> None:
+        if self.mode == "record":
+            self._auto_min = record.clamp_minutes(self._auto_min + record.AUTO_STEP)
+            record.save_settings(self._auto_on, self._auto_min); self._paint(); return
         self.pomo.add(); self.pomo.save(); self._paint()
 
     def action_pomo_remove(self) -> None:
+        if self.mode == "record":
+            self._auto_min = record.clamp_minutes(self._auto_min - record.AUTO_STEP)
+            record.save_settings(self._auto_on, self._auto_min); self._paint(); return
         self.pomo.remove(); self.pomo.save(); self._paint()
+
+    def action_auto_toggle(self) -> None:
+        if self.mode != "record":
+            return
+        self._auto_on = not self._auto_on
+        record.save_settings(self._auto_on, self._auto_min)
+        self._paint()
 
     def action_primary(self) -> None:
         """space: the main action of the current panel (record toggle in Record,
@@ -246,7 +266,8 @@ class Deck(App):
             return board.render_body(self.board_data)
         if which == "record":
             return record.render_body(self._rec_state, self._rec.seconds,
-                                      self._rec.level, self._last_transcript)
+                                      self._rec.level, self._last_transcript,
+                                      self._auto_on, self._auto_min)
         return capture.render_body(capture.pick_prompt(self._prompt_i), self._last_saved)
 
     def _paint(self) -> None:
