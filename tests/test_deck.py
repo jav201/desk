@@ -91,6 +91,24 @@ async def test_open_board_spawns_terminal(monkeypatch):
     assert calls and "taskboard" in str(calls[0])
 
 
+async def test_open_transcripts_opens_folder(tmp_path, monkeypatch):
+    """'t' opens the transcripts folder in the OS file manager, creating it on
+    demand so the key always works (win32: os.startfile; else: xdg-open/open)."""
+    from desk import record
+    tdir = tmp_path / "transcripts"
+    monkeypatch.setattr(record, "TRANSCRIPTS_DIR", tdir)
+    opened = []
+    monkeypatch.setattr("os.startfile", lambda p: opened.append(p), raising=False)
+    monkeypatch.setattr("subprocess.Popen", lambda *a, **k: opened.append(a) or None)
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("t")
+        await pilot.pause()
+    assert opened and str(tdir) in str(opened[0])
+    assert tdir.is_dir()                     # created on demand
+
+
 async def test_record_panel_opens():
     app = Deck()
     async with app.run_test() as pilot:

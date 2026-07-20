@@ -114,3 +114,16 @@ def test_render_body_recording_autostop_countdown():
 def test_render_body_idle_shows_setting():
     body = record.render_body("idle", auto_on=True, auto_min=45)
     assert "auto-stop" in body and "45 min" in body
+
+
+def test_module_import_is_lazy_no_eager_audio_stack():
+    """The launch-stall fix: importing desk.record must NOT import soundcard/numpy
+    at module scope (soundcard init is what stalled desk startup). AVAILABLE stays
+    a plain presence check."""
+    assert isinstance(record.AVAILABLE, bool)
+    assert not hasattr(record, "sc"), "soundcard imported at module scope (eager)"
+    assert not hasattr(record, "np"), "numpy imported at module scope (eager)"
+
+
+def test_render_body_idle_mentions_open_transcripts():
+    assert "open transcripts folder" in record.render_body("idle")
