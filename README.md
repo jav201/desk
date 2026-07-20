@@ -17,6 +17,7 @@ Panels:
 - **Board** — your current *doing* task and a mini kanban, read live from the [taskboard](https://github.com/jav201/taskboard) app.
 - **Focus** — a pomodoro whose clock is a high-res braille dot-matrix, coloured by a cool→hot thermometer of elapsed time.
 - **Capture** — a rotating prompt; press enter and the line lands in your Obsidian daily note (or a local file when the vault isn't around).
+- **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install "desk[record]"`).
 
 ## Install
 
@@ -49,10 +50,13 @@ desk
 | `b` | Board panel |
 | `f` | Focus panel |
 | `c` | Capture panel |
+| `m` | Record panel |
 | `esc` | collapse to the strip |
-| `space` | pomodoro start / pause |
-| `s` | pomodoro skip |
-| `r` | pomodoro reset |
+| `space` | primary action of the panel — pomodoro start/pause (Focus) · start/stop recording (Record) |
+| `s` / `r` | pomodoro skip / reset |
+| `+` / `-` | Focus: fewer/more pomodoros · Record: adjust auto-stop ±5 min |
+| `a` | Record: toggle auto-stop |
+| `o` | open the full board (taskboard) in a new terminal |
 | `F5` | refresh the board now |
 | `q` | quit |
 
@@ -67,6 +71,25 @@ desk
   ```
 
   If the vault folder isn't reachable (e.g. a different computer), captures fall back to a single local file `~/.desk/captures.md`, grouped by day — nothing is lost.
+
+## Record — meeting transcription
+
+<p align="center">
+  <img src="docs/desk-record.gif" width="520" alt="desk record panel — recording with auto-stop countdown"><br>
+  <sub>Recording: live level meter, elapsed timer, and the auto-stop countdown.</sub>
+</p>
+
+Capture a meeting and get a transcript — **fully local and offline** (no accounts, no cloud, nothing leaves your machine). Opt-in install:
+
+```bash
+pip install "desk[record]"     # adds soundcard + faster-whisper
+```
+
+- **`m`** opens the Record panel, **`space`** starts/stops. On stop, a local Whisper model transcribes the audio (downloads once, ~150 MB) and saves it as markdown — the UI never freezes (runs in a background worker).
+- Captures **system audio + your mic** (so it hears everyone on the call), mixed to 16 kHz mono.
+- **Auto-stop** — so an unattended meeting still gets saved: a countdown auto-stops + transcribes at zero. **`a`** toggles it, **`+`/`-`** adjust it ±5 min (even mid-recording). Default 60 min, on.
+- Saved under `~/.desk/transcripts/<timestamp>/` (`transcript.md` + `audio.wav`); auto-stop settings persist in `~/.desk/record.json`.
+- Without the extra installed, the panel simply says "install desk[record] to enable".
 
 ## Frameless, always-on-top (desktop-widget mode)
 
@@ -86,6 +109,12 @@ The deck is built to grow. Each panel is a small module (`desk/board.py`, `desk/
 2. In `desk/app.py`: add it to `PANELS`, add a tile entry in `_tiles`, a branch in `_body`, and a hotkey `Binding`.
 
 Panels are deliberately decoupled — data flows through files, not cross-imports — so a new widget slots in without touching the others. A panel registry is the natural refactor once there are more than a handful.
+
+## Disclaimer
+
+Recording conversations may be legally regulated and often requires the **consent of all participants** — laws vary by jurisdiction. **You are solely responsible for using this tool lawfully**, including obtaining any consent required. Please use it responsibly.
+
+This software is provided **"as is", without warranty of any kind**, and the authors accept **no liability** for any use — see [LICENSE](LICENSE).
 
 ## Development
 
