@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import threading
 import wave
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -20,6 +21,41 @@ except Exception:                       # pragma: no cover - env without the ext
 TRANSCRIPTS_DIR = Path.home() / ".desk" / "transcripts"
 SR = 16000          # whisper wants 16 kHz mono
 CHUNK = 0.25        # seconds per capture chunk
+RECORD_SETTINGS_PATH = Path.home() / ".desk" / "record.json"
+AUTO_MIN_DEFAULT = 60
+AUTO_MIN_LO = 5
+AUTO_MIN_HI = 240
+AUTO_STEP = 5
+
+
+def clamp_minutes(minutes: int) -> int:
+    return max(AUTO_MIN_LO, min(AUTO_MIN_HI, minutes))
+
+
+def load_settings(path: Path | None = None) -> dict:
+    """Auto-stop prefs {enabled: bool, minutes: int}. Missing/corrupt -> defaults
+    (60 min, ON). minutes is clamped. Never raises."""
+    path = path or RECORD_SETTINGS_PATH
+    try:
+        d = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        d = {}
+    try:
+        minutes = int(d.get("minutes", AUTO_MIN_DEFAULT))
+    except Exception:
+        minutes = AUTO_MIN_DEFAULT
+    return {"enabled": bool(d.get("enabled", True)), "minutes": clamp_minutes(minutes)}
+
+
+def save_settings(enabled: bool, minutes: int, path: Path | None = None) -> None:
+    path = path or RECORD_SETTINGS_PATH
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"enabled": bool(enabled), "minutes": int(minutes)}),
+                    encoding="utf-8")
+
+
+def should_autostop(seconds: float, auto_on: bool, minutes: int) -> bool:
+    return bool(auto_on) and seconds >= minutes * 60
 
 
 def stamp(now: datetime | None = None) -> str:
@@ -150,7 +186,8 @@ def render_tile(state: str, seconds: float = 0.0, level: float = 0.0) -> str:
 
 
 def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
-                last: str | None = None) -> str:
+                last: str | None = None, auto_on: bool = True,
+                auto_min: int = AUTO_MIN_DEFAULT) -> str:
     out = ["[bold #2dd4bf]RECORD[/]", ""]
     if not AVAILABLE:
         out += ["[dim]meeting recorder + local transcription[/dim]", "",
@@ -158,14 +195,25 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
                 "[dim]  pip install desk\\[record][/dim]"]
         return "\n".join(out)
     if state == "recording":
-        out += [f"[#ff3b30]● recording[/]   {_mmss(seconds)}", "",
+        if auto_on:
+            remaining = max(0, auto_min * 60 - int(seconds))
+            auto_line = f"[#ffd166]auto-stop in {_mmss(remaining)}[/] [#3fb950]\\[on][/]"
+        else:
+            auto_line = "[dim]auto-stop: off[/dim]"
+        out += [f"[#ff3b30]● recording[/]   {_mmss(seconds)}",
+                auto_line, "",
                 "  " + _meter(level), "",
-                "[dim]space stops and transcribes[/dim]"]
+                "[dim]space stops · a auto-stop · +/- adjust[/dim]"]
     elif state == "transcribing":
         out += ["[#ffd166]◌ transcribing…[/]   [dim](local whisper on CPU — a moment)[/dim]"]
     else:
         out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
                 "[#ffd166]space[/] start recording"]
+        if auto_on:
+            out.append(f"[#ffd166]auto-stop[/] {auto_min} min   [#ffd166]a[/] on/off · "
+                       f"[#ffd166]+/-[/] ±5 min")
+        else:
+            out.append("[#ffd166]auto-stop[/] off   [#ffd166]a[/] on/off")
         if last:
             preview = last[:220] + ("…" if len(last) > 220 else "")
             out += ["", "[dim]last transcript:[/dim]", preview]

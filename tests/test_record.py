@@ -77,3 +77,40 @@ def test_render_body_idle_shows_last_and_consent():
 def test_render_body_recording_has_meter():
     body = record.render_body("recording", seconds=10, level=0.1)
     assert "recording" in body and "▊" in body
+
+
+def test_settings_defaults_missing(tmp_path):
+    assert record.load_settings(tmp_path / "nope.json") == {"enabled": True, "minutes": 60}
+
+
+def test_settings_roundtrip_and_clamp(tmp_path):
+    p = tmp_path / "record.json"
+    record.save_settings(True, 30, p)
+    assert record.load_settings(p) == {"enabled": True, "minutes": 30}
+    record.save_settings(False, 9999, p)                 # out of range
+    s = record.load_settings(p)
+    assert s["enabled"] is False and s["minutes"] == record.AUTO_MIN_HI
+
+
+def test_clamp_minutes():
+    assert record.clamp_minutes(1) == record.AUTO_MIN_LO
+    assert record.clamp_minutes(9999) == record.AUTO_MIN_HI
+    assert record.clamp_minutes(45) == 45
+
+
+def test_should_autostop():
+    assert record.should_autostop(3600, True, 60) is True
+    assert record.should_autostop(3599, True, 60) is False
+    assert record.should_autostop(9999, False, 60) is False
+
+
+def test_render_body_recording_autostop_countdown():
+    body = record.render_body("recording", seconds=13 * 60, level=0.1,
+                              auto_on=True, auto_min=60)
+    assert "auto-stop in 47:00" in body
+    assert "auto-stop: off" in record.render_body("recording", seconds=60, auto_on=False)
+
+
+def test_render_body_idle_shows_setting():
+    body = record.render_body("idle", auto_on=True, auto_min=45)
+    assert "auto-stop" in body and "45 min" in body
