@@ -14,7 +14,11 @@ from pathlib import Path
 # inference-safe workaround. Harmless on a clean (non-conda) machine.
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
-DEFAULT_MODEL = "base"
+# A Hub model name ("base", "tiny.en", …) OR a local directory path. Set
+# DESK_WHISPER_MODEL to a folder containing config.json/model.bin/… to load a
+# pre-fetched model with zero network calls — for locked-down / offline boxes
+# where huggingface.co is blocked. Default keeps the Hub "base" model.
+DEFAULT_MODEL = os.environ.get("DESK_WHISPER_MODEL", "base")
 AVAILABLE = all(importlib.util.find_spec(m) for m in ("numpy", "faster_whisper"))
 
 _model_cache: dict[str, object] = {}

@@ -66,3 +66,15 @@ def test_save_transcript_writes_md(tmp_path):
 def test_save_transcript_empty_marks_no_speech(tmp_path):
     out = T.save_transcript(tmp_path / "audio.wav", "   ", now=datetime(2026, 7, 20, 3, 8))
     assert "_(no speech detected)_" in out.read_text(encoding="utf-8")
+
+
+def test_default_model_env_override(monkeypatch):
+    """DESK_WHISPER_MODEL overrides the model — a Hub name OR a local dir path
+    (for offline/locked-down boxes). Unset -> the Hub 'base' default."""
+    import importlib
+    monkeypatch.setenv("DESK_WHISPER_MODEL", r"C:\models\faster-whisper-base")
+    importlib.reload(T)
+    assert T.DEFAULT_MODEL == r"C:\models\faster-whisper-base"
+    monkeypatch.delenv("DESK_WHISPER_MODEL", raising=False)
+    importlib.reload(T)                       # restore module state for other tests
+    assert T.DEFAULT_MODEL == "base"
