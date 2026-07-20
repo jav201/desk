@@ -64,3 +64,26 @@ async def test_deck_space_starts_pomodoro(tmp_path, monkeypatch):
         # the focus tile reflects the running mark
         tile = str(app.query_one("#tile-focus").render())
         assert "▸" in tile
+
+
+def test_target_add_remove_floor_ceiling_and_persist(tmp_path):
+    p = focus.Pomodoro()
+    assert p.target == focus.POMO_SET
+    p.add()
+    assert p.target == focus.POMO_SET + 1
+    for _ in range(30):
+        p.add()
+    assert p.target == focus.POMO_MAX                 # capped
+    for _ in range(30):
+        p.remove()
+    assert p.target == 1                               # floored
+    q = focus.Pomodoro(completed=3, target=3)
+    q.remove()
+    assert q.target == 2 and q.completed == 2          # completed clamps with target
+    path = tmp_path / "s.json"
+    focus.Pomodoro(target=8, completed=2).save(path)
+    assert focus.Pomodoro.load(path).target == 8       # target round-trips
+
+
+def test_render_uses_target_not_fixed_five():
+    assert "of 3" in focus.render_body(focus.Pomodoro(target=3))

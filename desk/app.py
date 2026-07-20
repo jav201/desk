@@ -21,7 +21,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import Input, Static
+from textual.widgets import Footer, Input, Static
 
 from . import board
 from . import capture
@@ -45,11 +45,16 @@ class Deck(App):
         Binding("f", "expand('focus')", "Focus", priority=True),
         Binding("c", "expand('capture')", "Capture", priority=True),
         Binding("escape", "collapse", "Strip", priority=True),
-        ("space", "pomo_toggle", "Start/Pause"),
-        ("s", "pomo_skip", "Skip"),
-        ("r", "pomo_reset", "Reset"),
+        ("o", "open_board", "Open board"),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
+        # pomodoro controls — shown inside the Focus panel, hidden from the footer
+        Binding("space", "pomo_toggle", "Start/Pause", show=False),
+        Binding("s", "pomo_skip", "Skip", show=False),
+        Binding("r", "pomo_reset", "Reset", show=False),
+        Binding("plus", "pomo_add", "More pomo", show=False),
+        Binding("equals_sign", "pomo_add", "More pomo", show=False),
+        Binding("minus", "pomo_remove", "Fewer pomo", show=False),
     ]
 
     mode = reactive("strip")
@@ -64,6 +69,7 @@ class Deck(App):
         with Vertical(id="stage", classes="hidden"):
             yield Static(id="stage-body")
             yield Input(placeholder="type a thought, hit enter…", id="cap-input")
+        yield Footer()
 
     def on_mount(self) -> None:
         self.pomo = focus.Pomodoro.load()
@@ -120,6 +126,23 @@ class Deck(App):
         self._paint()
         self.notify("refreshed")
 
+    def action_open_board(self) -> None:
+        """Launch the full taskboard app in a separate terminal window — WezTerm
+        if available, otherwise a new default console."""
+        import shutil
+        import subprocess
+        import sys
+        try:
+            if shutil.which("wezterm"):
+                subprocess.Popen(["wezterm", "start", "--", "taskboard"])
+            elif sys.platform == "win32":
+                subprocess.Popen(["taskboard"], creationflags=subprocess.CREATE_NEW_CONSOLE)
+            else:
+                subprocess.Popen(["taskboard"])
+            self.notify("opening taskboard…")
+        except Exception as exc:
+            self.notify(f"couldn't open taskboard: {exc}", severity="error")
+
     def action_pomo_toggle(self) -> None:
         self.pomo.toggle(); self.pomo.save(); self._paint()
 
@@ -128,6 +151,12 @@ class Deck(App):
 
     def action_pomo_reset(self) -> None:
         self.pomo.reset(); self.pomo.save(); self._paint()
+
+    def action_pomo_add(self) -> None:
+        self.pomo.add(); self.pomo.save(); self._paint()
+
+    def action_pomo_remove(self) -> None:
+        self.pomo.remove(); self.pomo.save(); self._paint()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
