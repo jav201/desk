@@ -89,3 +89,47 @@ async def test_open_board_spawns_terminal(monkeypatch):
         await pilot.press("o")
         await pilot.pause()
     assert calls and "taskboard" in str(calls[0])
+
+
+async def test_record_panel_opens():
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        assert app.mode == "record"
+        assert "RECORD" in str(app.query_one("#stage-body").render())
+
+
+async def test_record_toggle_unavailable_does_not_start(monkeypatch):
+    from desk import record
+    monkeypatch.setattr(record, "AVAILABLE", False)
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.press("space")            # primary -> _rec_toggle, but unavailable
+        await pilot.pause()
+        assert app._rec_state == "idle"
+
+
+async def test_record_start_sets_recording(monkeypatch):
+    from desk import record
+
+    class FakeRec:
+        def __init__(self, *a, **k):
+            self.running = False; self.seconds = 0.0; self.level = 0.0
+        def start(self): self.running = True
+        def stop(self): self.running = False; return None
+
+    monkeypatch.setattr(record, "AVAILABLE", True)
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app._rec = FakeRec()
+        await pilot.press("m")
+        await pilot.pause()
+        await pilot.press("space")
+        await pilot.pause()
+        assert app._rec_state == "recording" and app._rec.running is True

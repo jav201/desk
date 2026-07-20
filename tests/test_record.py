@@ -58,3 +58,22 @@ def test_fresh_recorder_not_running(tmp_path):
     r = record.Recorder(base_dir=tmp_path)
     assert r.running is False
     assert r.seconds == 0.0
+
+
+def test_render_tile_states():
+    assert "record a meeting" in record.render_tile("idle")
+    assert "REC" in record.render_tile("recording", seconds=65)
+    assert "01:05" in record.render_tile("recording", seconds=65)
+    assert "transcrib" in record.render_tile("transcribing").lower()
+
+
+def test_render_body_idle_shows_last_and_consent():
+    body = record.render_body("idle", last="hello meeting world")
+    assert "RECORD" in body
+    assert "hello meeting world" in body
+    assert "consent" in body
+
+
+def test_render_body_recording_has_meter():
+    body = record.render_body("recording", seconds=10, level=0.1)
+    assert "recording" in body and "▊" in body
