@@ -5,18 +5,18 @@ are guarded so the panel degrades gracefully when they're absent.
 """
 from __future__ import annotations
 
+import importlib.util
 import threading
 import wave
 import json
 from datetime import datetime
 from pathlib import Path
 
-try:
-    import numpy as np
-    import soundcard as sc
-    AVAILABLE = True
-except Exception:                       # pragma: no cover - env without the extra
-    AVAILABLE = False
+# Presence check only — do NOT import numpy/soundcard here. Importing soundcard
+# initializes the Windows WASAPI/COM audio stack, which sits in desk's startup
+# path and can stall the first paint by seconds on some machines. The heavy
+# imports are deferred to the functions that record/mix (mirrors transcribe.py).
+AVAILABLE = all(importlib.util.find_spec(m) for m in ("numpy", "soundcard"))
 
 TRANSCRIPTS_DIR = Path.home() / ".desk" / "transcripts"
 SR = 16000          # whisper wants 16 kHz mono
@@ -87,6 +87,7 @@ class Recorder:
     def start(self) -> Path:
         if not AVAILABLE:
             raise RuntimeError("recording needs the optional extra: pip install desk[record]")
+        import soundcard as sc            # deferred: keeps WASAPI init off startup
         if self.running:
             return self.dir
         self.dir = self.base / stamp()
@@ -107,6 +108,7 @@ class Recorder:
         return self.dir
 
     def _capture(self, device, path: Path, is_loop: bool) -> None:
+        import numpy as np
         n = int(SR * CHUNK)
         with wave.open(str(path), "wb") as w:
             w.setnchannels(1)
@@ -136,6 +138,7 @@ class Recorder:
 
 
 def _read_i32(path: Path):
+    import numpy as np
     if not path.exists():
         return np.zeros(0, dtype=np.int32)
     with wave.open(str(path), "rb") as w:
@@ -144,6 +147,7 @@ def _read_i32(path: Path):
 
 
 def _mix(a: Path, b: Path, out: Path) -> None:
+    import numpy as np
     xa, xb = _read_i32(a), _read_i32(b)
     n = max(len(xa), len(xb))
     if n == 0:
@@ -208,7 +212,8 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
         out += ["[#ffd166]◌ transcribing…[/]   [dim](local whisper on CPU — a moment)[/dim]"]
     else:
         out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
-                "[#ffd166]space[/] start recording"]
+                "[#ffd166]space[/] start recording",
+                "[#ffd166]t[/] open transcripts folder"]
         if auto_on:
             out.append(f"[#ffd166]auto-stop[/] {auto_min} min   [#ffd166]a[/] on/off · "
                        f"[#ffd166]+/-[/] ±5 min")
