@@ -48,6 +48,7 @@ class Deck(App):
         Binding("escape", "collapse", "Strip", priority=True),
         Binding("m", "expand('record')", "Record", priority=True),
         ("o", "open_board", "Open board"),
+        ("t", "open_transcripts", "Transcripts"),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
         # pomodoro controls — shown inside the Focus panel, hidden from the footer
@@ -155,6 +156,25 @@ class Deck(App):
             self.notify("opening taskboard…")
         except Exception as exc:
             self.notify(f"couldn't open taskboard: {exc}", severity="error")
+
+    def action_open_transcripts(self) -> None:
+        """Open the transcripts folder (~/.desk/transcripts) in the OS file
+        manager. Created if it doesn't exist yet, so the key always works."""
+        import os
+        import subprocess
+        import sys
+        d = record.TRANSCRIPTS_DIR
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            if sys.platform == "win32":
+                os.startfile(str(d))
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", str(d)])
+            else:
+                subprocess.Popen(["xdg-open", str(d)])
+            self.notify(f"opening {d}")
+        except Exception as exc:
+            self.notify(f"couldn't open transcripts: {exc}", severity="error")
 
     def action_pomo_toggle(self) -> None:
         self.pomo.toggle(); self.pomo.save(); self._paint()
