@@ -60,3 +60,56 @@ def save_transcript(wav: Path, text: str, now=None) -> Path:
     body = text.strip() if text.strip() else "_(no speech detected)_"
     out.write_text(f"# Transcript — {now:%Y-%m-%d %H:%M}\n\n{body}\n", encoding="utf-8")
     return out
+
+
+def transcribe_file(path: Path, model_size: str = DEFAULT_MODEL,
+                    language: str | None = None) -> str:
+    """Transcribe *any* audio file faster-whisper can decode (m4a, mp3, wav, …).
+
+    Unlike transcribe(), which expects a 16 kHz mono WAV recorded by the Record
+    panel, this hands the path straight to faster-whisper — its PyAV backend
+    decodes and resamples any common format, so no manual conversion is needed.
+    Raises RuntimeError if the optional extra is missing."""
+    if not AVAILABLE:
+        raise RuntimeError("transcription needs the optional extra: pip install desk[record]")
+    model = _load(model_size)
+    segments, _info = model.transcribe(str(path), language=language, beam_size=1)
+    return " ".join(s.text.strip() for s in segments).strip()
+
+
+def main(argv=None) -> None:
+    """CLI `desk-transcribe`: transcribe existing audio files locally/offline,
+    writing `<name>.md` beside each one."""
+    import argparse
+    from datetime import datetime
+
+    ap = argparse.ArgumentParser(
+        prog="desk-transcribe",
+        description="Transcribe audio files locally with faster-whisper (offline, CPU).")
+    ap.add_argument("files", nargs="+", type=Path, help="audio files (m4a, mp3, wav, …)")
+    ap.add_argument("-m", "--model", default=DEFAULT_MODEL,
+                    help=f"whisper model name or local path (default: {DEFAULT_MODEL})")
+    ap.add_argument("-l", "--language", default=None,
+                    help="language code, e.g. es / en (default: auto-detect)")
+    args = ap.parse_args(argv)
+
+    if not AVAILABLE:
+        raise SystemExit("transcription needs the optional extra: pip install desk[record]")
+
+    for f in args.files:
+        if not f.exists():
+            print(f"skip (not found): {f}")
+            continue
+        text = transcribe_file(f, model_size=args.model, language=args.language)
+        body = text if text.strip() else "_(no speech detected)_"
+        out = f.with_suffix(".md")
+        out.write_text(
+            f"# Transcript — {f.name}\n\n"
+            f"- Generated: {datetime.now():%Y-%m-%d %H:%M}\n"
+            f"- Model: faster-whisper `{args.model}` (CPU, int8)\n\n"
+            f"{body}\n", encoding="utf-8")
+        print(f"-> {out}")
+
+
+if __name__ == "__main__":
+    main()

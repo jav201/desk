@@ -15,6 +15,7 @@ record = ["soundcard>=0.4.3", "faster-whisper>=1.0", "numpy>=1.24"]
 
 [project.scripts]
 desk = "desk.app:main"
+desk-transcribe = "desk.transcribe:main"
 
 [tool.setuptools]
 packages = ["desk"]

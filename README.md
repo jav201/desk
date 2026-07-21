@@ -93,6 +93,18 @@ Transcripts are saved under `~/.desk/transcripts/<timestamp>/` (`audio.wav` + `t
 - Saved under `~/.desk/transcripts/<timestamp>/` (`transcript.md` + `audio.wav`); auto-stop settings persist in `~/.desk/record.json`.
 - Without the extra installed, the panel simply says "install desk[record] to enable".
 
+### Transcribe existing files — `desk-transcribe`
+
+Already have audio (a meeting export, a voice memo)? The `desk-transcribe` command runs the same local, offline model on any file faster-whisper can decode — `.m4a`, `.mp3`, `.wav`, … — no conversion needed. It writes `<name>.md` beside each input. Needs the same extra (`pip install -e ".[record]"`).
+
+```bash
+desk-transcribe meeting.m4a                 # -> meeting.md
+desk-transcribe *.m4a -l es                 # force Spanish, skip auto-detect
+desk-transcribe memo.mp3 -m small           # bigger model = better, slower (base is default)
+```
+
+`-m/--model` takes any model name or a local path (same values as `DESK_WHISPER_MODEL` below); `-l/--language` forces a language code instead of auto-detecting.
+
 ### Offline / locked-down machines
 
 The model is fetched from Hugging Face on first use. Behind a **corporate TLS-inspecting proxy** you may hit `CERTIFICATE_VERIFY_FAILED` — trust the proxy's root CA (`setx SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` to a PEM) and the download works.
