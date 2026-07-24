@@ -55,6 +55,48 @@ async def test_every_panel_has_a_placeholder_body():
             assert name.upper() in body.upper()
 
 
+def test_deck_disables_auto_focus():
+    """Root-cause guard: Textual's default AUTO_FOCUS='*' auto-focuses the
+    capture Input at mount, which swallows the global hotkeys until an esc frees
+    it — the 'ribbon shows but nothing works until I press esc' bug. Pilot's
+    mount timing hides it, so a behavioural test would be vacuous; pin the fix
+    itself. If this is ever reverted the bug returns."""
+    assert Deck.AUTO_FOCUS is None
+
+
+async def test_auto_focus_star_would_grab_a_composed_input():
+    """Documents WHY the guard above matters: an Input composed under the default
+    AUTO_FOCUS='*' really does get auto-focused, so leaving it default would
+    reintroduce the swallow-the-keys bug. This is the mechanism, on a minimal app
+    so it doesn't depend on desk's own mount-timing luck."""
+    from textual.app import App, ComposeResult
+    from textual.widgets import Input, Static
+
+    class Mini(App):
+        AUTO_FOCUS = "*"
+        def compose(self) -> ComposeResult:
+            yield Static("x")
+            yield Input()
+
+    app = Mini()
+    async with app.run_test(size=(40, 6)) as pilot:
+        await pilot.pause()
+        assert isinstance(app.focused, Input)          # * grabs it — desk must not
+
+
+async def test_startup_hotkey_fires_without_any_warmup(tmp_path, monkeypatch):
+    """A hotkey must work on the very first keypress — no keys+esc warmup."""
+    from desk import board
+    monkeypatch.setattr(board, "BOARD_PATH", tmp_path / "nope.json")
+    app = Deck()
+    async with app.run_test(size=(90, 16)) as pilot:
+        await pilot.pause()
+        assert app.focused is None                     # nothing grabbed focus
+        await pilot.press("f")                         # first keypress
+        await pilot.pause()
+        assert app.mode == "focus"
+
+
 async def test_leaving_capture_releases_focus_so_hotkeys_live():
     """Regression: escaping Capture used to leave focus stuck on the hidden
     Input, which intermittently swallowed the global hotkeys ('a veces'). After
