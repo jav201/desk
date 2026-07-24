@@ -270,11 +270,19 @@ class Pomodoro:
             self.completed = self.target
 
 
+PULSE_BG = "#123a37"        # dark-teal wash: the running tile's heartbeat
+
+
 # ---- renderers (Textual markup strings) -------------------------------------
-def render_tile(pomo: Pomodoro) -> str:
+def render_tile(pomo: Pomodoro, beat: bool = False) -> str:
+    """The minimized strip tile. A RUNNING timer breathes: on a beat its time
+    gets a faint dark-teal background wash, so the deck shows life at rest."""
     hexv = temp_hex(pomo.elapsed_frac)
     mark = "▸" if pomo.running else "||"
-    return f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
+    time = f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]"
+    if pomo.running and beat:
+        time = f"[on {PULSE_BG}]{time}[/]"
+    return f"{time}  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
 
 
 def render_body(pomo: Pomodoro, beat: bool = False) -> str:

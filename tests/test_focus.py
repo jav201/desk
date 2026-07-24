@@ -160,6 +160,16 @@ def test_running_timer_breathes_but_digits_do_not():
     assert focus.BRIGHT in focus.render_body(run, beat=True)   # digits still bright
 
 
+def test_running_tile_breathes_on_beat():
+    """D1: the minimized Focus tile gets a background wash on a beat while the
+    timer runs, so the strip shows life at rest. Paused/idle never pulses."""
+    run = focus.Pomodoro(remaining=700, running=True)
+    assert focus.render_tile(run, beat=True) != focus.render_tile(run, beat=False)
+    assert f"[on {focus.PULSE_BG}]" in focus.render_tile(run, beat=True)
+    paused = focus.Pomodoro(remaining=700, running=False)
+    assert focus.render_tile(paused, beat=True) == focus.render_tile(paused, beat=False)
+
+
 def test_thermometer_and_marker_removed():
     """AC-F3: the old horizontal thermometer legend + ▲ marker are gone."""
     body = focus.render_body(focus.Pomodoro())

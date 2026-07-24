@@ -294,8 +294,8 @@ class Deck(App):
         """The minimized live tiles. Real data arrives with each panel's
         increment; for now they are honest placeholders."""
         return {
-            "board": board.render_tile(self.board_data),
-            "focus": focus.render_tile(self.pomo),
+            "board": board.render_tile(self.board_data, beat=self._beat),
+            "focus": focus.render_tile(self.pomo, beat=self._beat),
             "capture": capture.render_tile(capture.pick_prompt(self._prompt_i)),
             "record": record.render_tile(self._rec_state, self._rec.seconds, self._rec.level),
         }
@@ -304,7 +304,7 @@ class Deck(App):
         if which == "focus":
             return focus.render_body(self.pomo, beat=self._beat)
         if which == "board":
-            return board.render_body(self.board_data)
+            return board.render_body(self.board_data, beat=self._beat)
         if which == "record":
             return record.render_body(self._rec_state, self._rec.seconds,
                                       self._rec.level, self._last_transcript,
