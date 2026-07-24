@@ -179,6 +179,20 @@ def _meter(level: float, width: int = 20) -> str:
     return f"[#ff3b30]{'▊' * filled}[/][dim]{'░' * (width - filled)}[/dim]"
 
 
+def _whisper_label() -> str:
+    """Colour-coded device chip for the panel: green GPU / gold CPU, plus the
+    model name. Reflects the actual device once a transcription has run."""
+    try:
+        from . import transcribe
+        dev = transcribe.active_device() or transcribe.planned_device()
+        model = transcribe.DEFAULT_MODEL
+    except Exception:
+        return "[dim]local[/dim]"
+    if dev == "cuda":
+        return f"[#3fb950]GPU[/] [dim]· {model}[/dim]"
+    return f"[#ffd166]CPU[/] [dim]· {model}[/dim]"
+
+
 def render_tile(state: str, seconds: float = 0.0, level: float = 0.0) -> str:
     if not AVAILABLE:
         return "[dim]● record  (pip install desk\\[record])[/dim]"
@@ -209,7 +223,8 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
                 "  " + _meter(level), "",
                 "[dim]space stops · a auto-stop · +/- adjust[/dim]"]
     elif state == "transcribing":
-        out += ["[#ffd166]◌ transcribing…[/]   [dim](local whisper on CPU — a moment)[/dim]"]
+        out += [f"[#ffd166]◌ transcribing…[/]   [dim](local whisper on[/dim] "
+                f"{_whisper_label()} [dim]— a moment)[/dim]"]
     else:
         out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
                 "[#ffd166]space[/] start recording",
@@ -219,6 +234,7 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
                        f"[#ffd166]+/-[/] ±5 min")
         else:
             out.append("[#ffd166]auto-stop[/] off   [#ffd166]a[/] on/off")
+        out.append(f"[dim]whisper:[/dim] {_whisper_label()}")
         if last:
             preview = last[:220] + ("…" if len(last) > 220 else "")
             out += ["", "[dim]last transcript:[/dim]", preview]

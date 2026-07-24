@@ -68,6 +68,90 @@ def test_save_transcript_empty_marks_no_speech(tmp_path):
     assert "_(no speech detected)_" in out.read_text(encoding="utf-8")
 
 
+def test_resolve_device_respects_explicit_env(monkeypatch):
+    """DESK_WHISPER_DEVICE forces the backend regardless of what's present."""
+    monkeypatch.setattr(T, "_cuda_cached", False)          # even with no GPU seen
+    monkeypatch.delenv("DESK_WHISPER_COMPUTE", raising=False)
+    monkeypatch.setenv("DESK_WHISPER_DEVICE", "cpu")
+    assert T._resolve_device() == ("cpu", "int8")
+    monkeypatch.setenv("DESK_WHISPER_DEVICE", "cuda")
+    assert T._resolve_device() == ("cuda", "float16")
+
+
+def test_auto_device_follows_gpu_presence(monkeypatch):
+    """The default ('auto') picks the GPU when present, CPU otherwise — this is
+    what keeps one build fast on a GPU box and portable on a laptop."""
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    monkeypatch.setattr(T, "_cuda_cached", True)
+    assert T.planned_device() == "cuda"
+    monkeypatch.setattr(T, "_cuda_cached", False)
+    assert T.planned_device() == "cpu"
+
+
+def test_compute_type_override(monkeypatch):
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    monkeypatch.setattr(T, "_cuda_cached", True)
+    monkeypatch.setenv("DESK_WHISPER_COMPUTE", "int8_float16")
+    assert T._resolve_device() == ("cuda", "int8_float16")
+
+
+def test_load_falls_back_to_cpu_when_gpu_unusable(monkeypatch):
+    """A GPU that is detected but can't build a model (driver/cuDNN mismatch, OOM)
+    must NOT crash transcription — it falls back to CPU, and active_device says so.
+    Without this, an in-app transcription would blow up on a half-configured box."""
+    import sys
+    import types
+    seen = []
+
+    class FakeModel:
+        def __init__(self, size, device, compute_type):
+            seen.append(device)
+            if device == "cuda":
+                raise RuntimeError("cuda unusable")
+
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+    monkeypatch.setattr(T, "_model_cache", {})
+    monkeypatch.setattr(T, "_active_device", None)
+    monkeypatch.setattr(T, "_cuda_cached", True)           # auto -> tries cuda first
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    T._load("base")
+    assert seen == ["cuda", "cpu"]                         # tried GPU, then fell back
+    assert T.active_device() == "cpu"
+
+
+def test_load_stays_on_gpu_when_it_builds(monkeypatch):
+    import sys
+    import types
+
+    class FakeModel:
+        def __init__(self, size, device, compute_type):
+            self.device = device
+
+    fake = types.ModuleType("faster_whisper")
+    fake.WhisperModel = FakeModel
+    monkeypatch.setitem(sys.modules, "faster_whisper", fake)
+    monkeypatch.setattr(T, "_model_cache", {})
+    monkeypatch.setattr(T, "_active_device", None)
+    monkeypatch.setattr(T, "_cuda_cached", True)
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    T._load("base")
+    assert T.active_device() == "cuda"
+
+
+def test_device_label_reflects_device_and_availability(monkeypatch):
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    monkeypatch.setattr(T, "AVAILABLE", True)
+    monkeypatch.setattr(T, "_active_device", None)
+    monkeypatch.setattr(T, "_cuda_cached", True)
+    assert T.device_label().endswith("· GPU")
+    monkeypatch.setattr(T, "_cuda_cached", False)
+    assert T.device_label().endswith("· CPU")
+    monkeypatch.setattr(T, "AVAILABLE", False)
+    assert "install" in T.device_label()
+
+
 def test_default_model_env_override(monkeypatch):
     """DESK_WHISPER_MODEL overrides the model — a Hub name OR a local dir path
     (for offline/locked-down boxes). Unset -> the Hub 'base' default."""
