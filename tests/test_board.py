@@ -157,6 +157,22 @@ def test_ledger_progress_and_project_colour(tmp_path):
     assert "1/3" in _plain(body)                              # GRNDIA: 1 done of 3
 
 
+def test_now_pulses_on_beat_when_a_task_is_doing(tmp_path):
+    """D1: the NOW element (strip tile + hero banner) gets a project-tinted
+    background wash on a beat while a task is in progress, so the deck breathes.
+    A board with nothing in progress never pulses."""
+    import datetime
+    d = board.load(_write(tmp_path, PHASE_BOARD))               # has a Doing task
+    assert board.render_tile(d, beat=True) != board.render_tile(d, beat=False)
+    assert "[on #" in board.render_tile(d, beat=True)           # bg wash present
+    today = datetime.date(2026, 7, 24)
+    assert board.render_body(d, today=today, beat=True) != board.render_body(d, today=today, beat=False)
+    nodoing = {"phases": ["Backlog", "Doing", "Done"], "projects": [],
+               "tasks": [{"id": "x", "title": "queued", "phase": "Backlog"}]}
+    dn = board.load(_write(tmp_path, nodoing))
+    assert board.render_tile(dn, beat=True) == board.render_tile(dn, beat=False)
+
+
 def test_body_marks_rescued_tasks(tmp_path):
     data = {"phases": ["Backlog", "Doing", "Done"], "projects": [],
             "tasks": [{"id": "x", "phase": "Doing"}]}          # missing title -> rescued

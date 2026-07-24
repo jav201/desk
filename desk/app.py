@@ -92,6 +92,7 @@ class Deck(App):
         self._prompt_i = 0
         self._last_saved = None
         self._ticks = 0
+        self._beat = False               # toggles each tick for the living panels
         self._rec = record.Recorder()
         self._rec_state = "idle"
         self._last_transcript = None
@@ -108,6 +109,7 @@ class Deck(App):
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
         self._ticks += 1
+        self._beat = not self._beat          # 1 fps parity for the living panels
         if self._ticks % BOARD_POLL_TICKS == 0:
             self.board_data = board.load()      # gentle auto-poll; F5 forces now
         completed = self.pomo.tick()
@@ -292,17 +294,17 @@ class Deck(App):
         """The minimized live tiles. Real data arrives with each panel's
         increment; for now they are honest placeholders."""
         return {
-            "board": board.render_tile(self.board_data),
-            "focus": focus.render_tile(self.pomo),
+            "board": board.render_tile(self.board_data, beat=self._beat),
+            "focus": focus.render_tile(self.pomo, beat=self._beat),
             "capture": capture.render_tile(capture.pick_prompt(self._prompt_i)),
             "record": record.render_tile(self._rec_state, self._rec.seconds, self._rec.level),
         }
 
     def _body(self, which: str) -> str:
         if which == "focus":
-            return focus.render_body(self.pomo)
+            return focus.render_body(self.pomo, beat=self._beat)
         if which == "board":
-            return board.render_body(self.board_data)
+            return board.render_body(self.board_data, beat=self._beat)
         if which == "record":
             return record.render_body(self._rec_state, self._rec.seconds,
                                       self._rec.level, self._last_transcript,
