@@ -92,6 +92,7 @@ class Deck(App):
         self._prompt_i = 0
         self._last_saved = None
         self._ticks = 0
+        self._beat = False               # toggles each tick for the living panels
         self._rec = record.Recorder()
         self._rec_state = "idle"
         self._last_transcript = None
@@ -108,6 +109,7 @@ class Deck(App):
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
         self._ticks += 1
+        self._beat = not self._beat          # 1 fps parity for the living panels
         if self._ticks % BOARD_POLL_TICKS == 0:
             self.board_data = board.load()      # gentle auto-poll; F5 forces now
         completed = self.pomo.tick()
@@ -300,7 +302,7 @@ class Deck(App):
 
     def _body(self, which: str) -> str:
         if which == "focus":
-            return focus.render_body(self.pomo)
+            return focus.render_body(self.pomo, beat=self._beat)
         if which == "board":
             return board.render_body(self.board_data)
         if which == "record":

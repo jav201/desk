@@ -17,15 +17,13 @@ POMO_SET = 5
 POMO_MAX = 12
 STATE_PATH = Path.home() / ".desk" / "state.json"
 
-# Ember-field render palette: bright digits over a draining braille "bed" whose
-# lit-dot mass tracks the remaining fraction. The bed carries the temperature
-# gradient; the digits stay at full brightness so the time is always legible.
+# Ember-hearth render palette: bright digits carved out of a draining braille
+# fire that fills the whole panel. The field carries the temperature gradient;
+# the digits stay at full brightness so the time is always legible over it.
 BRIGHT = "#dbe4ee"          # digit ink — never temperature-tinted
 EMBER = "#8a5a4a"           # dim ash (drained skeleton, reserved)
 DOT_DONE = "#ffd166"        # neutral set-progress ink (gold) — NOT temperature
 DOT_NOW = "#2dd4bf"         # neutral set-progress ink (teal)
-BED_COLS = 30               # braille columns of the ember field
-BED_ROWS = 3                # 30*2*3*4 = 720 dots
 BED_SEED = 7                # fixed shuffle → dots evaporate in a stable order
 
 # ---- braille clock font (6x8 dots, upscaled 2x, then 2x4-dot braille) -------
@@ -125,41 +123,82 @@ def dots_line(completed: int, target: int, state: str) -> str:
     return f"    {''.join(parts)}  [dim]{cap}[/dim]"
 
 
-def bed_lines(remaining_frac: float, cols: int = BED_COLS,
-              rows: int = BED_ROWS, seed: int = BED_SEED,
-              indent: int = 4) -> list[str]:
-    """The ember field: `rows` braille lines whose lit-dot mass is proportional
-    to `remaining_frac`. Dots evaporate in a fixed shuffled order (stable across
-    ticks), and each cell is tinted by its horizontal position on the cool→hot
-    ramp. Drained dots are blank, so the field visibly thins as time runs out.
-    Every returned line has identical visible width (indent + cols)."""
+def _lighten(hexv: str, factor: float) -> str:
+    r, g, b = (int(hexv[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % tuple(min(255, round(v * factor)) for v in (r, g, b))
+
+
+# ---- ember hearth (F1): the whole panel is a draining fire, clock carved in --
+HEARTH_COLS = 30                                   # braille columns (60 dots)
+HEARTH_ABOVE = 2                                   # field cell-rows above clock
+HEARTH_BELOW = 3                                   # field cell-rows below clock
+HEARTH_ROWS = HEARTH_ABOVE + 4 + HEARTH_BELOW      # 9 cell rows (clock is 4)
+_HEARTH_BREATH = 1.16                              # per-beat brightness on the field
+
+
+def _clock_dotrows(timestr: str) -> list[str]:
+    """The mm:ss clock as 16 rows of a dot bitmap (the real 2x-upscaled font),
+    so it can be carved into the ember field cell-for-cell."""
+    glyphs = [_upscale2(_COLON if ch == ":" else _DIG[ch]) for ch in timestr]
+    return ["..".join(g[y] for g in glyphs) for y in range(16)]
+
+
+def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
+                 cols: int = HEARTH_COLS, seed: int = BED_SEED,
+                 indent: int = 4) -> list[str]:
+    """The whole Focus panel as one draining braille fire with the clock carved
+    out of it. Field dots evaporate in a fixed shuffled order as `remaining_frac`
+    falls (stable across ticks); each field cell is tinted by its horizontal
+    cool→hot position, and on `beat` the lit field brightens a touch so a running
+    timer breathes. Digit cells render ONLY the digit dots, always at full
+    BRIGHT, so the time stays legible over the fire. All rows share one width."""
     remaining_frac = max(0.0, min(1.0, remaining_frac))
-    total = cols * 2 * rows * 4
-    order = list(range(total))
+    W, H = cols * 2, HEARTH_ROWS * 4
+    # carve the clock into the dot rows starting HEARTH_ABOVE cell-rows down
+    art = _clock_dotrows(timestr)
+    top = HEARTH_ABOVE * 4
+    digit_dots = {(x, top + y) for y in range(16)
+                  for x in range(min(W, len(art[y]))) if art[y][x] == "#"}
+    digit_cells = {(x // 2, y // 4) for (x, y) in digit_dots}
+    # stable drain: shuffle every dot once, light the first `frac` share
+    order = [(x, y) for y in range(H) for x in range(W)]
     random.Random(seed).shuffle(order)
-    lit = set(order[:round(remaining_frac * total)])
+    lit = set(order[:round(remaining_frac * len(order))])
     pad = " " * indent
     out = []
-    for cy in range(rows):
-        chars = []
+    for cy in range(HEARTH_ROWS):
+        cells = []                                 # (char, colour|None) per column
         for cx in range(cols):
-            mask = 0
-            for y in range(4):
-                for x in range(2):
-                    did = (cy * 4 + y) * (cols * 2) + (cx * 2 + x)
-                    if did in lit:
-                        mask |= _BIT[(x, y)]
-            chars.append(chr(0x2800 + mask) if mask else " ")
-        # coalesce runs of equal colour so the markup stays compact
+            if (cx, cy) in digit_cells:
+                mask = 0
+                for y in range(4):
+                    for x in range(2):
+                        if (cx * 2 + x, cy * 4 + y) in digit_dots:
+                            mask |= _BIT[(x, y)]
+                cells.append((chr(0x2800 + mask), BRIGHT))
+            else:
+                mask = 0
+                for y in range(4):
+                    for x in range(2):
+                        if (cx * 2 + x, cy * 4 + y) in lit:
+                            mask |= _BIT[(x, y)]
+                if mask:
+                    col = temp_hex(cx / (cols - 1)) if cols > 1 else temp_hex(0.5)
+                    cells.append((chr(0x2800 + mask),
+                                  _lighten(col, _HEARTH_BREATH) if beat else col))
+                else:
+                    cells.append((" ", None))
+        # coalesce equal-colour runs into compact markup; symmetric padding
         row, j = pad, 0
-        while j < cols:
-            hexv = temp_hex(j / (cols - 1)) if cols > 1 else temp_hex(0.5)
+        while j < len(cells):
+            col = cells[j][1]
             k = j
-            while k < cols and (temp_hex(k / (cols - 1)) if cols > 1 else temp_hex(0.5)) == hexv:
+            while k < len(cells) and cells[k][1] == col:
                 k += 1
-            row += f"[{hexv}]{''.join(chars[j:k])}[/]"
+            chunk = "".join(cells[i][0] for i in range(j, k))
+            row += f"[{col}]{chunk}[/]" if col else chunk
             j = k
-        out.append(row)
+        out.append(row + pad)
     return out
 
 
@@ -238,16 +277,15 @@ def render_tile(pomo: Pomodoro) -> str:
     return f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
 
 
-def render_body(pomo: Pomodoro) -> str:
-    """Ember-field layout: full-brightness braille digits over a draining bed of
-    braille dots (mass ∝ remaining time), then neutral set-dots and controls."""
+def render_body(pomo: Pomodoro, beat: bool = False) -> str:
+    """Ember-hearth layout: the whole panel is a draining braille fire with the
+    clock carved out of it, then neutral set-dots and controls. A running timer
+    breathes on `beat` (tick parity); a paused or idle one holds still."""
     state = "running" if pomo.running else ("done" if pomo.remaining == 0 else "paused")
     remaining_frac = pomo.remaining / WORK_SECONDS
+    breathe = beat and pomo.running
     out = ["[bold #2dd4bf]FOCUS[/]", ""]
-    for bl in braille_lines(mmss(pomo.remaining)):
-        out.append(f"    [{BRIGHT}]{bl}[/]")
-    out.append("")
-    out.extend(bed_lines(remaining_frac))
+    out.extend(hearth_lines(remaining_frac, mmss(pomo.remaining), beat=breathe))
     out.append("")
     out.append(dots_line(pomo.completed, pomo.target, state))
     out.append("")
