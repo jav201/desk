@@ -8,6 +8,7 @@ and the app just drops the strings into its tiles/stage. State persists to
 from __future__ import annotations
 
 import json
+import random
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -15,6 +16,17 @@ WORK_SECONDS = 25 * 60
 POMO_SET = 5
 POMO_MAX = 12
 STATE_PATH = Path.home() / ".desk" / "state.json"
+
+# Ember-field render palette: bright digits over a draining braille "bed" whose
+# lit-dot mass tracks the remaining fraction. The bed carries the temperature
+# gradient; the digits stay at full brightness so the time is always legible.
+BRIGHT = "#dbe4ee"          # digit ink — never temperature-tinted
+EMBER = "#8a5a4a"           # dim ash (drained skeleton, reserved)
+DOT_DONE = "#ffd166"        # neutral set-progress ink (gold) — NOT temperature
+DOT_NOW = "#2dd4bf"         # neutral set-progress ink (teal)
+BED_COLS = 30               # braille columns of the ember field
+BED_ROWS = 3                # 30*2*3*4 = 720 dots
+BED_SEED = 7                # fixed shuffle → dots evaporate in a stable order
 
 # ---- braille clock font (6x8 dots, upscaled 2x, then 2x4-dot braille) -------
 _DIG = {
@@ -67,16 +79,25 @@ def braille_lines(timestr: str) -> list[str]:
 
 
 # ---- temperature gradient (cool = fresh, hot = ending) ----------------------
-_TEMP = [(0.0, "#45c4ff"), (0.25, "#34d1bf"), (0.5, "#ffd166"),
-         (0.72, "#ff8c42"), (0.9, "#ff3b30")]
+# Stops as RGB triples; the last is repeated at 1.0 so interpolation has an
+# upper anchor. temp_hex ramps smoothly between stops instead of snapping.
+_TEMP = [(0.0, (0x45, 0xc4, 0xff)), (0.25, (0x34, 0xd1, 0xbf)),
+         (0.5, (0xff, 0xd1, 0x66)), (0.72, (0xff, 0x8c, 0x42)),
+         (0.9, (0xff, 0x3b, 0x30)), (1.0, (0xff, 0x3b, 0x30))]
 
 
 def temp_hex(frac: float) -> str:
-    hexv = _TEMP[0][1]
-    for thr, h in _TEMP:
-        if frac >= thr:
-            hexv = h
-    return hexv
+    """Smoothly interpolated cool→hot hex. Endpoints match the named stops
+    (#45c4ff at 0.0, #ff3b30 at ≥0.9) so nothing snaps between bands."""
+    frac = max(0.0, min(1.0, frac))
+    for i in range(len(_TEMP) - 1):
+        a, ca = _TEMP[i]
+        b, cb = _TEMP[i + 1]
+        if frac <= b:
+            t = 0.0 if b == a else (frac - a) / (b - a)
+            return "#%02x%02x%02x" % tuple(
+                round(ca[k] + (cb[k] - ca[k]) * t) for k in range(3))
+    return "#ff3b30"
 
 
 def mmss(secs: int) -> str:
@@ -86,6 +107,60 @@ def mmss(secs: int) -> str:
 
 def dots(done: int, total: int = POMO_SET) -> str:
     return "".join("●" if i < done else "○" for i in range(total))
+
+
+def dots_line(completed: int, target: int, state: str) -> str:
+    """Set-progress dots + caption, colour-coded by SET position only — done
+    (gold ●), current (teal ◐), pending (dim ○). Never temperature-tinted, so
+    the dots never cross-code with the ember field above them."""
+    parts = []
+    for i in range(target):
+        if i < completed:
+            parts.append(f"[{DOT_DONE}]●[/]")
+        elif i == completed:
+            parts.append(f"[{DOT_NOW}]◐[/]")
+        else:
+            parts.append("[dim]○[/dim]")
+    cap = f"pomodoro {min(completed + 1, target)} of {target} · {state}"
+    return f"    {''.join(parts)}  [dim]{cap}[/dim]"
+
+
+def bed_lines(remaining_frac: float, cols: int = BED_COLS,
+              rows: int = BED_ROWS, seed: int = BED_SEED,
+              indent: int = 4) -> list[str]:
+    """The ember field: `rows` braille lines whose lit-dot mass is proportional
+    to `remaining_frac`. Dots evaporate in a fixed shuffled order (stable across
+    ticks), and each cell is tinted by its horizontal position on the cool→hot
+    ramp. Drained dots are blank, so the field visibly thins as time runs out.
+    Every returned line has identical visible width (indent + cols)."""
+    remaining_frac = max(0.0, min(1.0, remaining_frac))
+    total = cols * 2 * rows * 4
+    order = list(range(total))
+    random.Random(seed).shuffle(order)
+    lit = set(order[:round(remaining_frac * total)])
+    pad = " " * indent
+    out = []
+    for cy in range(rows):
+        chars = []
+        for cx in range(cols):
+            mask = 0
+            for y in range(4):
+                for x in range(2):
+                    did = (cy * 4 + y) * (cols * 2) + (cx * 2 + x)
+                    if did in lit:
+                        mask |= _BIT[(x, y)]
+            chars.append(chr(0x2800 + mask) if mask else " ")
+        # coalesce runs of equal colour so the markup stays compact
+        row, j = pad, 0
+        while j < cols:
+            hexv = temp_hex(j / (cols - 1)) if cols > 1 else temp_hex(0.5)
+            k = j
+            while k < cols and (temp_hex(k / (cols - 1)) if cols > 1 else temp_hex(0.5)) == hexv:
+                k += 1
+            row += f"[{hexv}]{''.join(chars[j:k])}[/]"
+            j = k
+        out.append(row)
+    return out
 
 
 # ---- pomodoro state ---------------------------------------------------------
@@ -163,25 +238,18 @@ def render_tile(pomo: Pomodoro) -> str:
     return f"[{hexv}]{mark} {mmss(pomo.remaining)}[/]  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
 
 
-def _thermometer(frac: float, width: int = 24) -> tuple[str, str]:
-    cells = "".join(f"[{temp_hex(i / (width - 1))}]█[/]" for i in range(width))
-    marker = round(frac * (width - 1))
-    mrow = " " * marker + "▲" + " " * (width - 1 - marker)
-    return cells, mrow
-
-
 def render_body(pomo: Pomodoro) -> str:
-    hexv = temp_hex(pomo.elapsed_frac)
+    """Ember-field layout: full-brightness braille digits over a draining bed of
+    braille dots (mass ∝ remaining time), then neutral set-dots and controls."""
     state = "running" if pomo.running else ("done" if pomo.remaining == 0 else "paused")
-    cells, mrow = _thermometer(pomo.elapsed_frac)
+    remaining_frac = pomo.remaining / WORK_SECONDS
     out = ["[bold #2dd4bf]FOCUS[/]", ""]
     for bl in braille_lines(mmss(pomo.remaining)):
-        out.append(f"    [{hexv}]{bl}[/]")
+        out.append(f"    [{BRIGHT}]{bl}[/]")
     out.append("")
-    out.append(f"    [dim]cool[/dim] {cells} [dim]hot[/dim]")
-    out.append(f"         {mrow}")
-    out.append(f"    [{hexv}]{dots(pomo.completed, pomo.target)}[/]  "
-               f"[dim]pomodoro {min(pomo.completed + 1, pomo.target)} of {pomo.target} · {state}[/dim]")
+    out.extend(bed_lines(remaining_frac))
+    out.append("")
+    out.append(dots_line(pomo.completed, pomo.target, state))
     out.append("")
     out.append("    [#ffd166]space[/] start/pause   [#ffd166]s[/] skip   [#ffd166]r[/] reset")
     out.append(f"    [#ffd166]+[/] / [#ffd166]-[/] pomodoros in the set  [dim]· now {pomo.target}[/dim]")

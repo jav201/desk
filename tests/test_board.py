@@ -50,11 +50,20 @@ def test_tile_no_board():
     assert "no board loaded" in board.render_tile(None)
 
 
+import re
+
+
+def _plain(markup: str) -> str:
+    """Visible text with Textual tags stripped — the header styles the label and
+    count separately, so assert against the rendered text, not the raw markup."""
+    return re.sub(r"\[/?[^\]]*\]", "", markup)
+
+
 def test_body_has_columns_and_counts(tmp_path):
     d = board.load(_write(tmp_path, SAMPLE))
-    body = board.render_body(d)
-    assert "TODO 1" in body and "DOING 1" in body and "DONE 1" in body
-    assert "funnel copy" in body
+    plain = _plain(board.render_body(d))
+    assert "TODO 1" in plain and "DOING 1" in plain and "DONE 1" in plain
+    assert "funnel copy" in plain              # the doing task appears in the NOW banner
 
 
 def test_body_escapes_markup(tmp_path):
@@ -75,6 +84,84 @@ async def test_deck_board_panel(tmp_path, monkeypatch):
         assert "funnel copy" in body
         tile = str(app.query_one("#tile-board").render())
         assert "funnel copy" in tile
+
+
+# ---- phase schema + rescue layer (mission-control redesign) -----------------
+PHASE_BOARD = {
+    "phases": ["Backlog", "Doing", "Done"],
+    "projects": [{"id": "p1", "name": "GRNDIA", "color": "amber"}],
+    "tasks": [
+        {"id": "a", "title": "ship", "project_id": "p1", "phase": "Doing",
+         "priority": "high", "due_date": "2026-07-26"},
+        {"id": "b", "title": "queued", "project_id": "p1", "phase": "Backlog",
+         "priority": "normal", "due_date": "2026-08-01"},
+        {"id": "c", "title": "shipped", "project_id": "p1", "phase": "Done"},
+    ],
+    "settings": {},
+}
+
+
+def test_reads_phase_schema_not_just_status(tmp_path):
+    """The real board dropped `status` for `phase`; desk must count those tasks
+    (the bug this redesign fixes: a phase-only board rendered zero tasks)."""
+    d = board.load(_write(tmp_path, PHASE_BOARD))
+    tasks, phases, _ = board.normalize(d)
+    todo, doing, done = board._buckets(tasks, phases)
+    assert (len(todo), len(doing), len(done)) == (1, 1, 1)
+    assert board.current_doing(d)["id"] == "a"          # phase "Doing" == now
+
+
+def test_normalize_rescues_drifted_tasks_never_drops():
+    """A task with a missing title / unknown phase / a bare non-object entry must
+    be rescued (kept, with a placeholder) — work never silently leaves the board."""
+    data = {"phases": ["Backlog", "Doing", "Done"], "projects": [], "tasks": [
+        {"id": "ok", "title": "fine", "phase": "Doing"},
+        {"id": "notitle", "phase": "Backlog"},                 # missing title
+        {"id": "nophase", "title": "orphan"},                  # no phase/status
+        "i am not an object",                                   # garbage entry
+    ]}
+    tasks, _, report = board.normalize(data)
+    assert report["total"] == 4
+    assert len(tasks) == 3                                     # 3 objects kept
+    assert report["dropped"] == 1                             # only the non-object
+    titles = {t["id"]: t["title"] for t in tasks}
+    assert titles["notitle"] == "(untitled)"                  # title rescued
+    assert next(t for t in tasks if t["id"] == "nophase")["phase"] == "Backlog"
+    assert report["rescued"] == 2                             # notitle + nophase
+
+
+def test_validate_reports_health_without_render():
+    assert board.validate(None)["total"] == 0
+    ok = board.validate(PHASE_BOARD)
+    assert ok["total"] == 3 and ok["rescued"] == 0 and ok["dropped"] == 0
+
+
+def test_horizon_places_overdue_and_future_due(tmp_path):
+    """Overdue tasks mass left of the today-rule; future dues sit on their day."""
+    data = {"phases": ["Backlog", "Doing", "Done"], "projects": [],
+            "tasks": [
+                {"id": "od", "title": "late", "phase": "Backlog", "due_date": "2026-07-20"},
+                {"id": "fut", "title": "soon", "phase": "Backlog", "due_date": "2026-07-28"},
+            ]}
+    d = board.load(_write(tmp_path, data))
+    plain = _plain(board.render_body(d, today=__import__("datetime").date(2026, 7, 24)))
+    assert "overdue" in plain                                 # overdue chip present
+    assert "▲" in plain and "│" in plain                      # overdue mark + today rule
+    assert "●" in plain                                       # a future due dot rendered
+
+
+def test_ledger_progress_and_project_colour(tmp_path):
+    d = board.load(_write(tmp_path, PHASE_BOARD))
+    body = board.render_body(d, today=__import__("datetime").date(2026, 7, 24))
+    assert "#fbbf24" in body                                  # amber project spine/bar
+    assert "1/3" in _plain(body)                              # GRNDIA: 1 done of 3
+
+
+def test_body_marks_rescued_tasks(tmp_path):
+    data = {"phases": ["Backlog", "Doing", "Done"], "projects": [],
+            "tasks": [{"id": "x", "phase": "Doing"}]}          # missing title -> rescued
+    d = board.load(_write(tmp_path, data))
+    assert "rescued" in _plain(board.render_body(d))
 
 
 async def test_refresh_reloads_board_immediately(tmp_path, monkeypatch):

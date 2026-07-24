@@ -2,7 +2,7 @@
 
 <p align="center">
   <img src="docs/desk-focus.gif" width="540" alt="desk — focus pomodoro"><br>
-  <sub>Focus — a braille pomodoro clock that warms cool→hot as the interval runs down.</sub>
+  <sub>Focus — a braille pomodoro clock over an ember field that drains as the interval runs down.</sub>
 </p>
 
 <p align="center">
@@ -14,8 +14,8 @@
 A frameless, always-on-top **widget deck** for the terminal — one window, a compact live strip that expands into panels on demand. Built with [Textual](https://textual.textualize.io/).
 
 Panels:
-- **Board** — your current *doing* task and a mini kanban, read live from the [taskboard](https://github.com/jav201/taskboard) app.
-- **Focus** — a pomodoro whose clock is a high-res braille dot-matrix, coloured by a cool→hot thermometer of elapsed time.
+- **Board** — mission control for your work, read live from the [taskboard](https://github.com/jav201/taskboard) app: the task you're on *now*, what's next up, a 14-day due horizon (overdue massed left of the today-rule, one coloured dot per due date), and a per-project progress ledger.
+- **Focus** — a pomodoro whose clock is a high-res braille dot-matrix, sitting over an "ember field" of 720 braille dots whose lit mass drains in step with the time remaining.
 - **Capture** — a rotating prompt; press enter and the line lands in your Obsidian daily note (or a local file when the vault isn't around).
 - **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install -e ".[record]"`).
 
@@ -62,7 +62,7 @@ desk
 
 ## Data & config
 
-- **Board** reads `~/.taskboard/board.json` (written by taskboard) read-only, auto-refreshing every ~5s; `F5` forces an instant reload. No taskboard installed? The Board panel simply shows "no board loaded".
+- **Board** reads `~/.taskboard/board.json` (written by taskboard) read-only, auto-refreshing every ~5s; `F5` forces an instant reload. No taskboard installed? The Board panel simply shows "no board loaded". Reading is **drift-tolerant**: both the current `phase` schema and the older `status` one are understood, and a task whose format has changed is repaired rather than dropped, so a taskboard upgrade can never make your work vanish from the panel.
 - **Focus** persists the pomodoro to `~/.desk/state.json`, so the timer survives a restart.
 - **Capture** appends `- YYYY-MM-DD HH:MM  <text>` under a `## Captures` heading in `<vault>/Daily/YYYY-MM-DD.md`. Point it at your vault in `~/.desk/config.json`:
 
