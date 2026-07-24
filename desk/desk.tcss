@@ -40,6 +40,15 @@ Screen {
     display: none;
 }
 
+/* the key legend (replaces Textual's Footer, which truncated silently) */
+#hints {
+    dock: bottom;
+    height: 1;
+    padding: 0 1;
+    background: #11161d;
+    color: #6b7787;
+}
+
 Input {
     border: tall #1b2431;
     background: #0b111a;

@@ -55,12 +55,22 @@ async def test_every_panel_has_a_placeholder_body():
             assert name.upper() in body.upper()
 
 
-async def test_footer_is_present_for_key_hints():
-    from textual.widgets import Footer
+async def test_hint_bar_shows_keys_and_follows_the_open_panel():
+    """The legend must exist, keep quit visible in a NARROW window (Textual's
+    Footer dropped it at 80 cols), and change when a panel opens."""
+    import re
     app = Deck()
-    async with app.run_test() as pilot:
+    async with app.run_test(size=(56, 16)) as pilot:
         await pilot.pause()
-        assert app.query(Footer)                       # keys are visible somewhere
+        bar = app.query_one("#hints")
+        strip_text = re.sub(r"\[/?[^\]]*\]", "", str(bar.render()))
+        assert "quit" in strip_text                    # never dropped, even narrow
+        assert len(strip_text) <= 56                   # fits the window
+        await pilot.press("f")                         # open the Focus panel
+        await pilot.pause()
+        focus_text = re.sub(r"\[/?[^\]]*\]", "", str(bar.render()))
+        assert focus_text != strip_text                # the bar actually updates
+        assert "start/pause" in focus_text and "esc" in focus_text
 
 
 async def test_pomodoro_count_keys(tmp_path, monkeypatch):

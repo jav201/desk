@@ -21,11 +21,12 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.reactive import reactive
-from textual.widgets import Footer, Input, Static
+from textual.widgets import Input, Static
 
 from . import board
 from . import capture
 from . import focus
+from . import hints
 from . import record
 
 PANELS = ("board", "focus", "capture", "record")
@@ -74,7 +75,9 @@ class Deck(App):
         with Vertical(id="stage", classes="hidden"):
             yield Static(id="stage-body")
             yield Input(placeholder="type a thought, hit enter…", id="cap-input")
-        yield Footer()
+        # our own legend, not Footer: Footer silently drops keys that don't fit
+        # (quit vanished at 80 cols) and never changed with the open panel.
+        yield Static(id="hints")
 
     def on_mount(self) -> None:
         self.pomo = focus.Pomodoro.load()
@@ -303,6 +306,17 @@ class Deck(App):
             (w.add_class if self.mode == name else w.remove_class)("active-tile")
         if self.mode in PANELS:
             self.query_one("#stage-body", Static).update(self._body(self.mode))
+        self._paint_hints()
+
+    def _paint_hints(self) -> None:
+        """Re-render the key legend for the current mode at the current width.
+        Called on every paint and on resize, so it always fits and always
+        reflects the open panel."""
+        width = self.size.width or 80          # size is (0,0) before first layout
+        self.query_one("#hints", Static).update(hints.render(self.mode, width - 2))
+
+    def on_resize(self, event) -> None:
+        self._paint_hints()
 
 
 def main() -> None:
