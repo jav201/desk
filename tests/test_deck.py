@@ -55,6 +55,42 @@ async def test_every_panel_has_a_placeholder_body():
             assert name.upper() in body.upper()
 
 
+async def test_leaving_capture_releases_focus_so_hotkeys_live():
+    """Regression: escaping Capture used to leave focus stuck on the hidden
+    Input, which intermittently swallowed the global hotkeys ('a veces'). After
+    collapse the app must have NO focused widget, and a hotkey must fire again."""
+    from textual.widgets import Input
+    app = Deck()
+    async with app.run_test(size=(90, 16)) as pilot:
+        await pilot.pause()
+        await pilot.press("c")                         # open capture
+        await pilot.pause()
+        assert app.focused is app.query_one("#cap-input", Input)
+        await pilot.press("escape")                    # leave it
+        await pilot.pause()
+        assert app.focused is None                     # focus deterministically released
+        await pilot.press("f")                         # a global hotkey works again
+        await pilot.pause()
+        assert app.mode == "focus"
+
+
+async def test_switching_panels_never_leaves_input_focused():
+    """Any panel reached without going through Capture must not hold the Input."""
+    from textual.widgets import Input
+    app = Deck()
+    async with app.run_test(size=(90, 16)) as pilot:
+        await pilot.pause()
+        inp = app.query_one("#cap-input", Input)
+        for key, mode in (("f", "focus"), ("b", "board"), ("m", "record")):
+            await pilot.press(key)
+            await pilot.pause()
+            assert app.mode == mode
+            assert app.focused is not inp              # input never steals these
+        await pilot.press("escape")
+        await pilot.pause()
+        assert app.mode == "strip" and app.focused is None
+
+
 async def test_hint_bar_shows_keys_and_follows_the_open_panel():
     """The legend must exist, keep quit visible in a NARROW window (Textual's
     Footer dropped it at 80 cols), and change when a panel opens."""

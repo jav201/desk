@@ -33,7 +33,7 @@ _CONTEXT = {
     "record": [("space", "rec/stop", 1), ("a", "auto-stop", 2),
                ("t", "scripts", 3)],
     "board": [("o", "open board", 2), ("F5", "refresh", 2)],
-    "capture": [("enter", "save", 1)],
+    # "capture" is handled specially in hints_for (its text box holds focus).
 }
 
 
@@ -43,6 +43,11 @@ def hints_for(mode: str) -> list[tuple[str, str, int]]:
         return [("b", "board", 1), ("f", "focus", 1), ("c", "capture", 1),
                 ("m", "record", 1), ("F5", "refresh", 2), ("o", "open", 3),
                 ("t", "scripts", 3), _QUIT]
+    if mode == "capture":
+        # the text box holds focus here, so letter keys type into the note and
+        # only the non-text keys actually work — advertise ONLY those, or the
+        # bar would promise b/f/c/m/q that just get typed.
+        return [("enter", "save", 1), _ESC]
     return _CONTEXT.get(mode, []) + [_PANEL_KEYS, _ESC, _QUIT]
 
 

@@ -125,15 +125,23 @@ class Deck(App):
             inp.focus()
             inp.placeholder = capture.pick_prompt(self._prompt_i)
         else:
-            inp.display = False
-            inp.can_focus = False
+            self._hide_input()
         self._paint()
 
-    def action_collapse(self) -> None:
-        self.mode = "strip"
+    def _hide_input(self) -> None:
+        """Fully disengage the capture text box so it can't swallow global keys.
+        Setting display/can_focus alone can leave focus stuck on the hidden Input
+        (Textual keeps the stale reference); that intermittently ate b/f/c/m/q
+        after visiting Capture and made the deck feel dead. Release focus too."""
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False
+        if self.focused is inp:
+            self.set_focus(None)
+
+    def action_collapse(self) -> None:
+        self.mode = "strip"
+        self._hide_input()
         self.query_one("#stage").add_class("hidden")
         self._paint()
 
