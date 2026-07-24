@@ -40,6 +40,13 @@ class Deck(App):
     """The always-on-top deck. `mode` is either "strip" (compact) or a panel."""
 
     CSS_PATH = "desk.tcss"
+    # Textual's default AUTO_FOCUS="*" auto-focuses the first focusable widget on
+    # mount — here the capture Input — which then swallows the global hotkeys
+    # until an `esc` releases focus (the "ribbon shows but nothing works until I
+    # mash keys + esc" bug, intermittent because it's a mount-timing race). The
+    # deck drives everything from App bindings and only focuses the Input when
+    # Capture opens, so nothing should be auto-focused.
+    AUTO_FOCUS = None
 
     BINDINGS = [
         # priority: fire even when the capture Input is focused
@@ -94,6 +101,7 @@ class Deck(App):
         inp = self.query_one("#cap-input", Input)
         inp.display = False
         inp.can_focus = False          # else it steals the b/f/c hotkeys at rest
+        self.set_focus(None)           # belt-and-suspenders vs any mount auto-focus
         self._paint()
         self.set_interval(1.0, self._tick)
 
