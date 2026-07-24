@@ -35,12 +35,24 @@ def test_reported_visible_width_matches_the_render():
             assert hints.visible_width(mode, w) == len(_plain(hints.render(mode, w)))
 
 
-def test_quit_is_never_dropped():
+def test_quit_is_never_dropped_where_it_works():
     """AC-2: quit vanished from the Footer at 80 cols. It must survive every
-    width — a user who cannot see how to exit is stuck."""
-    for mode in MODES:
+    width in every mode where the key actually fires. Capture is excluded on
+    purpose: its text box has focus, so `q` types a 'q' — advertising it there
+    would be a lie (see test_capture_only_shows_keys_that_work)."""
+    for mode in ("strip", "board", "focus", "record"):
         for w in WIDTHS:
             assert " quit" in _plain(hints.render(mode, w)), f"{mode} at {w}"
+
+
+def test_capture_only_shows_keys_that_work():
+    """In capture the Input holds focus, so only non-text keys do anything.
+    The bar must show enter/esc and NOT the letter hotkeys that would just be
+    typed into the note."""
+    for w in WIDTHS:
+        plain = _plain(hints.render("capture", w))
+        assert "save" in plain and "esc" in plain      # the keys that work
+        assert "board" not in plain and "quit" not in plain  # would be typed, not fired
 
 
 def test_escape_is_never_dropped_inside_a_panel():
