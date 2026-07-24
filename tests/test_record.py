@@ -127,3 +127,20 @@ def test_module_import_is_lazy_no_eager_audio_stack():
 
 def test_render_body_idle_mentions_open_transcripts():
     assert "open transcripts folder" in record.render_body("idle")
+
+
+def test_render_body_shows_whisper_device_indicator(monkeypatch):
+    """The panel must tell the user whether transcription will run on the GPU or
+    CPU (and the model), so 'is this using my card?' is answerable at a glance."""
+    from desk import transcribe as T
+    monkeypatch.setattr(T, "AVAILABLE", True)
+    monkeypatch.setattr(T, "_active_device", None)
+    monkeypatch.delenv("DESK_WHISPER_DEVICE", raising=False)
+    monkeypatch.setattr(record, "AVAILABLE", True)
+    monkeypatch.setattr(T, "_cuda_cached", True)          # GPU present
+    body = record.render_body("idle")
+    assert "whisper:" in body and "GPU" in body
+    monkeypatch.setattr(T, "_cuda_cached", False)         # no GPU
+    assert "CPU" in record.render_body("idle")
+    # the transcribing state also names the device instead of hard-coding "CPU"
+    assert "CPU" in record.render_body("transcribing")
