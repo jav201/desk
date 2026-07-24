@@ -1,27 +1,57 @@
 """Board panel — reads the taskboard's board.json (read-only, loose coupling).
 
-`desk` never imports the taskboard package; it parses ~/.taskboard/board.json and
-tolerates it being missing, old, or half-written. Statuses are grouped into the
-same three columns taskboard uses, and the legacy "active" name (boards written
-before the doing-rename) is treated as doing.
+desk never imports the taskboard package; it parses ~/.taskboard/board.json and
+tolerates it being missing, old, or half-written. Every task is passed through a
+normalisation/rescue layer (`normalize`) that understands BOTH the current
+phase-based schema and the legacy status schema, and never silently drops a task
+whose format has drifted — a task with a missing title keeps a placeholder, a
+task with no phase lands in the first column, so a schema change can never lose
+work off the board. The panel renders "mission control": a hero NOW banner, a
+14-day due horizon, and a per-project progress ledger.
 """
 from __future__ import annotations
 
 import json
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from rich.markup import escape as esc
 
 BOARD_PATH = Path.home() / ".taskboard" / "board.json"
 
-_TODO = ("backlog",)
-_DOING = ("doing", "active", "blocked")     # "active" = legacy, pre-rename
-_DONE = ("done",)
+DEFAULT_PHASES = ("Backlog", "Doing", "Done")
+# legacy task.status -> (phase name, blocked); kept forever so boards written
+# before the phase migration still load with their tasks in the right column.
+_LEGACY_STATUS = {
+    "backlog": ("Backlog", False),
+    "active": ("Doing", False),     # pre-rename name for "doing"
+    "doing": ("Doing", False),
+    "blocked": ("Doing", True),
+    "done": ("Done", False),
+}
 _PRIORITY_RANK = {"high": 0, "normal": 1, "low": 2}
-_COLW = 18
-_MAXROWS = 6
+
+# project colour names (taskboard's palette) -> hex, so desk paints each project
+# the same colour taskboard does without importing it.
+_COLOR_HEX = {
+    "rose": "#fb7185", "orange": "#fb923c", "amber": "#fbbf24", "lime": "#a3e635",
+    "green": "#4ade80", "cyan": "#22d3ee", "sky": "#38bdf8", "blue": "#60a5fa",
+    "indigo": "#818cf8", "violet": "#a78bfa", "fuchsia": "#e879f9", "pink": "#f472b6",
+}
+_MUTED = "#6b7787"          # Inbox / unknown project / drained bar
+_TEAL = "#2dd4bf"           # header + today rule
+_GOLD = "#ffd166"          # the now-task / doing chip
+_HIGH = "#ff8c42"          # high-priority chip
+_OVER = "#f43f5e"          # overdue
+_DIM = "#5b6675"           # horizon empty cells
+
+BODY_W = 60                 # target render width (flexible #stage; art is exact)
+_BAR = 8                    # ledger progress-bar cells
+_NAMEW = 18                 # ledger project-name column
+_HORIZON = 14               # days shown on the due horizon
 
 
+# ---- IO ---------------------------------------------------------------------
 def load(path: Path | None = None) -> dict | None:
     """Parsed board.json, or None if missing/corrupt/half-written."""
     path = path or BOARD_PATH
@@ -32,91 +62,313 @@ def load(path: Path | None = None) -> dict | None:
         return None
 
 
+def _phases(data: dict) -> tuple:
+    ph = data.get("phases")
+    if isinstance(ph, list) and all(isinstance(p, str) and p.strip() for p in ph) and ph:
+        return tuple(p.strip() for p in ph)
+    return DEFAULT_PHASES
+
+
+def _match_phase(name: str, phases: tuple) -> str:
+    """Map a raw phase name onto an actual board phase (case-insensitive), or
+    keep the raw string if the board has no such phase (a custom/unknown phase
+    is preserved, not discarded)."""
+    for p in phases:
+        if p.lower() == name.strip().lower():
+            return p
+    return name.strip()
+
+
+def _parse_due(raw: dict):
+    v = raw.get("due_date") or raw.get("due")
+    if not isinstance(v, str):
+        return None
+    try:
+        return datetime.strptime(v[:10], "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+
+def normalize(data: dict, phases: tuple | None = None) -> tuple[list, tuple, dict]:
+    """Turn raw board.json tasks into canonical task dicts, rescuing drift.
+
+    Returns (tasks, phases, report). Each task has: id, title, phase, blocked,
+    priority, project_id, due (date|None), archived, rescued (bool), issues.
+    A task is only skipped if its entry is not an object at all; everything else
+    is repaired and kept, so no work disappears when the schema changes.
+    """
+    phases = phases or _phases(data)
+    tasks: list = []
+    report = {"total": 0, "rescued": 0, "dropped": 0, "issues": []}
+    for raw in data.get("tasks", []) or []:
+        report["total"] += 1
+        if not isinstance(raw, dict):
+            report["dropped"] += 1
+            report["issues"].append("non-object task entry skipped")
+            continue
+        issues: list[str] = []
+
+        title = raw.get("title")
+        if not isinstance(title, str) or not title.strip():
+            title = "(untitled)"
+            issues.append("missing/blank title -> placeholder")
+        else:
+            title = title.strip()
+
+        ph_raw = raw.get("phase")
+        blocked = bool(raw.get("blocked", False))
+        if isinstance(ph_raw, str) and ph_raw.strip():
+            phase = _match_phase(ph_raw, phases)
+        else:
+            st = raw.get("status")
+            key = st.strip().lower() if isinstance(st, str) else None
+            if key in _LEGACY_STATUS:
+                name, blk = _LEGACY_STATUS[key]
+                phase = _match_phase(name, phases)
+                blocked = blocked or blk
+            else:
+                phase = phases[0]                       # rescue: default column
+                issues.append("no phase/status -> first column")
+
+        pr = raw.get("priority")
+        if pr not in _PRIORITY_RANK:
+            pr = "normal"
+
+        rescued = bool(issues)
+        if rescued:
+            report["rescued"] += 1
+            report["issues"].extend(issues)
+        tasks.append({
+            "id": raw.get("id"),
+            "title": title,
+            "phase": phase,
+            "blocked": blocked,
+            "priority": pr,
+            "project_id": raw.get("project_id"),
+            "due": _parse_due(raw),
+            "archived": bool(raw.get("archived", False)),
+            "rescued": rescued,
+            "issues": issues,
+        })
+    return tasks, phases, report
+
+
+def validate(data: dict | None) -> dict:
+    """A quick health report for a board without rendering it — how many tasks
+    loaded, how many needed rescue, and why. Useful to spot schema drift early."""
+    if not isinstance(data, dict):
+        return {"total": 0, "rescued": 0, "dropped": 0,
+                "issues": ["board.json missing or not an object"]}
+    _, _, report = normalize(data)
+    return report
+
+
+# ---- derived views ----------------------------------------------------------
 def _projects(data: dict) -> dict:
-    return {p.get("id"): p.get("name", "?") for p in data.get("projects", [])}
+    out = {}
+    for p in data.get("projects", []) or []:
+        if isinstance(p, dict):
+            out[p.get("id")] = (p.get("name", "?"), _COLOR_HEX.get(p.get("color"), _MUTED))
+    return out
 
 
-def _visible(data: dict) -> list:
-    return [t for t in data.get("tasks", []) if not t.get("archived")]
+def _proj(pid, projs) -> tuple[str, str]:
+    if pid and pid in projs:
+        return projs[pid]
+    return ("Inbox", _MUTED)
 
 
-def _proj_name(pid, projs) -> str:
-    return projs.get(pid, "Inbox") if pid else "Inbox"
+def _buckets(tasks: list, phases: tuple) -> tuple[list, list, list]:
+    """Split non-archived tasks into (todo, doing, done) columns by phase:
+    first phase = todo, last phase = done, anything else = doing."""
+    first, last = phases[0], phases[-1]
+    vis = [t for t in tasks if not t["archived"]]
+    todo = [t for t in vis if t["phase"] == first]
+    done = [t for t in vis if t["phase"] == last and last != first]
+    doing = [t for t in vis if t["phase"] != first and t["phase"] != last]
+    return todo, doing, done
 
 
 def current_doing(data: dict) -> dict | None:
-    """The one task to show as 'now': first doing task, else first blocked."""
-    tasks = _visible(data)
-    doing = [t for t in tasks if t.get("status") in ("doing", "active")]
-    if doing:
-        return doing[0]
-    blocked = [t for t in tasks if t.get("status") == "blocked"]
-    return blocked[0] if blocked else None
+    """The one task to show as 'now': first unblocked doing task, else first
+    blocked one, else None."""
+    if not data:
+        return None
+    tasks, phases, _ = normalize(data)
+    _, doing, _ = _buckets(tasks, phases)
+    if not doing:
+        return None
+    doing.sort(key=lambda t: (t["blocked"], _PRIORITY_RANK[t["priority"]]))
+    return doing[0]
 
 
-def _cell(raw: str, cls: str | None = None, w: int = _COLW) -> str:
-    raw = raw[:w]
-    pad = " " * (w - len(raw))
-    disp = esc(raw)
-    return (f"[{cls}]{disp}[/]" if cls else disp) + pad
+def _next_up(todo: list) -> dict | None:
+    """The next task you'd pick up: earliest due, then highest priority."""
+    if not todo:
+        return None
+    far = date.max
+    return sorted(todo, key=lambda t: (t["due"] or far, _PRIORITY_RANK[t["priority"]]))[0]
 
 
+def _due_chip(due, today: date) -> tuple[str, str] | None:
+    if due is None:
+        return None
+    days = (due - today).days
+    if days < 0:
+        return (f"overdue {-days}d", _OVER)
+    if days == 0:
+        return ("due today", _GOLD)
+    return (f"due in {days}d", _GOLD)
+
+
+# ---- markup line builder ----------------------------------------------------
+def _emit(segs: list, width: int) -> str:
+    """Render (text, style|None) segments to Textual markup, escaping every text
+    run and padding to `width`. Over-wide input is truncated on the last run."""
+    vis = sum(len(t) for t, _ in segs)
+    if vis > width:                                   # defensive: never overflow
+        return _emit(_truncate(segs, width), width)
+    out = []
+    for t, s in segs:
+        e = esc(t)
+        out.append(f"[{s}]{e}[/]" if s else e)
+    return "".join(out) + " " * (width - vis)
+
+
+def _truncate(segs: list, width: int) -> list:
+    acc, out = 0, []
+    for t, s in segs:
+        if acc + len(t) <= width:
+            out.append((t, s))
+            acc += len(t)
+        else:
+            out.append((t[: width - acc], s))
+            break
+    return out
+
+
+def _fill(left: list, right: list, width: int, ch: str = "─", style: str = _DIM) -> str:
+    lv = sum(len(t) for t, _ in left)
+    rv = sum(len(t) for t, _ in right)
+    n = max(0, width - lv - rv)
+    return _emit(left + [(ch * n, style)] + right, width)
+
+
+def _banner(label: str, task: dict | None, title_style, projs: dict,
+            today: date, width: int, empty: str) -> str:
+    """One hero row: coloured spine + label + (truncated) title · project, with
+    the due chip right-aligned. The title is trimmed so project + chip always fit."""
+    if not task:
+        return _emit([("▐▐", _MUTED), ("  ", None), (label, "dim"),
+                      ("  ", None), (empty, "dim")], width)
+    nm, hx = _proj(task.get("project_id"), projs)
+    nm = nm[:14]
+    chip = _due_chip(task.get("due"), today)
+    rlen = (len(chip[0]) + 1) if chip else 0
+    fixed = 2 + 2 + len(label) + 2 + 3 + len(nm)      # spine+gap+label+gap+" · "+proj
+    avail = max(3, width - fixed - rlen)
+    title = task["title"]
+    if len(title) > avail:
+        title = title[: avail - 1] + "…"
+    left = [("▐▐", hx), ("  ", None), (label, "dim"), ("  ", None),
+            (title, title_style), (" · ", "dim"), (nm, hx)]
+    right = [(chip[0], chip[1])] if chip else []
+    return _fill(left, right, width, ch=" ")
+
+
+# ---- renderers --------------------------------------------------------------
 def render_tile(data: dict | None) -> str:
     if not data:
         return "› [dim](no board loaded)[/dim]"
     cur = current_doing(data)
     if not cur:
         return "› [dim](nothing in progress)[/dim]"
-    proj = _proj_name(cur.get("project_id"), _projects(data))
-    title = cur.get("title", "?")
-    return f"[dim]›[/dim] [#ffd166]{esc(proj)} · {esc(title)}[/]"
+    name, hexv = _proj(cur.get("project_id"), _projects(data))
+    return f"[dim]›[/dim] [{hexv}]{esc(name)}[/] [#ffd166]{esc(cur['title'])}[/]"
 
 
-def _sorted(tasks: list, statuses: tuple) -> list:
-    ts = [t for t in tasks if t.get("status") in statuses]
-    ts.sort(key=lambda t: _PRIORITY_RANK.get(t.get("priority"), 1))
-    return ts
-
-
-def _render_cell(colist: list, i: int, cur_id=None, done_col=False) -> str:
-    if i >= len(colist):
-        return _cell("")
-    t = colist[i]
-    title = t.get("title", "?")
-    if cur_id and t.get("id") == cur_id:
-        return _cell("▸ " + title, "#ffd166")
-    if done_col:
-        return _cell("✓ " + title, "#3fb950")
-    if t.get("priority") == "high":
-        return _cell("! " + title, "#ff8c42")
-    return _cell("  " + title)
-
-
-def render_body(data: dict | None) -> str:
+def render_body(data: dict | None, today: date | None = None, width: int = BODY_W) -> str:
     if not data:
         return ("[bold #2dd4bf]BOARD[/]\n\n"
                 "[dim]no board at ~/.taskboard/board.json[/dim]\n"
                 "[dim]install and run taskboard to populate this.[/dim]")
+    today = today or date.today()
+    W = width
+    tasks, phases, report = normalize(data)
     projs = _projects(data)
-    tasks = _visible(data)
-    todo = _sorted(tasks, _TODO)
-    doing = _sorted(tasks, _DOING)
-    done = _sorted(tasks, _DONE)
-    cur = current_doing(data)
-    cur_id = cur.get("id") if cur else None
-    out = ["[bold #2dd4bf]BOARD[/]", ""]
-    out.append(_cell(f"TODO {len(todo)}", "bold")
-               + _cell(f"DOING {len(doing)}", "bold")
-               + _cell(f"DONE {len(done)}", "bold"))
-    rows = min(max(len(todo), len(doing), len(done), 1), _MAXROWS)
-    for i in range(rows):
-        out.append(_render_cell(todo, i)
-                   + _render_cell(doing, i, cur_id=cur_id)
-                   + _render_cell(done, i, done_col=True))
-    if max(len(todo), len(doing), len(done)) > _MAXROWS:
-        out.append("[dim]… more in taskboard[/dim]")
-    if cur:
+    todo, doing, done = _buckets(tasks, phases)
+    active = todo + doing
+    now = current_doing(data)
+    nxt = _next_up(todo)
+
+    out = []
+    # header — generic column labels + counts, dashed to the right
+    out.append(_fill(
+        [("BOARD ", "bold #2dd4bf")],
+        [(" TODO ", "dim"), (str(len(todo)), None), (" · ", _DIM),
+         ("DOING ", "dim"), (str(len(doing)), None), (" · ", _DIM),
+         ("DONE ", "dim"), (str(len(done)), None)], W))
+    out.append("")
+
+    # NOW banner + next-up (title truncated so the project + due chip always fit)
+    out.append(_banner("NOW", now, "bold #ffd166", projs, today, W, empty="nothing in progress"))
+    out.append(_banner("nxt", nxt, None, projs, today, W, empty="queue empty"))
+    out.append("")
+
+    # DUE horizon
+    overdue = [t for t in active if t["due"] and t["due"] < today]
+    K = len(overdue)
+    right = [(" ", None), ("▲ ", _OVER), (f"{K} overdue", _OVER)] if K else []
+    out.append(_fill([("DUE ", "bold"), (f"─ next {_HORIZON} days ", "dim")], right, W))
+    # horizon row: prefix + overdue marker + today rule + N day cells (2ch each)
+    hz = [("     ", None), ("▲ " if K else "  ", _OVER if K else None), ("│", _TEAL)]
+    for d in range(_HORIZON):
+        day = today + timedelta(days=d)
+        due_here = [t for t in active if t["due"] == day]
+        if due_here:
+            best = min(due_here, key=lambda t: _PRIORITY_RANK[t["priority"]])
+            hz.append(("● ", _proj(best.get("project_id"), projs)[1]))
+        else:
+            hz.append(("· ", _DIM))
+    out.append(_emit(hz, W))
+    # date ticks under every other day cell (cells start at column 8)
+    tick = [(" " * 8, None)]
+    for d in range(0, _HORIZON, 2):
+        tick.append(((today + timedelta(days=d)).strftime("%d") + "  ", "dim"))
+    out.append(_emit(tick, W))
+    out.append("")
+
+    # per-project ledger — progress bar + doing/high/next-due chips
+    pids = [p.get("id") for p in data.get("projects", []) or [] if isinstance(p, dict)]
+    if any(t["project_id"] not in projs for t in tasks if not t["archived"]):
+        pids.append(None)                                   # Inbox for orphans
+    for pid in pids:
+        mine = [t for t in tasks if not t["archived"] and t["project_id"] == pid]
+        if not mine:
+            continue
+        nm, hx = _proj(pid, projs)
+        d_done = sum(1 for t in mine if t["phase"] == phases[-1] and phases[-1] != phases[0])
+        total = len(mine)
+        fill = round(d_done / total * _BAR) if total else 0
+        m_active = [t for t in mine if t["phase"] != phases[-1] or phases[-1] == phases[0]]
+        doing_n = sum(1 for t in mine if t in doing)
+        high_n = sum(1 for t in m_active if t["priority"] == "high")
+        chips: list = []
+        if doing_n:
+            chips += [("▸" + str(doing_n) + " ", _GOLD)]
+        if high_n:
+            chips += [("!" + str(high_n) + " ", _HIGH)]
+        soon = [t for t in m_active if t["due"]]
+        if soon:
+            nd = min(soon, key=lambda t: t["due"])
+            days = (nd["due"] - today).days
+            chips += [(f"▲{-days}d", _OVER)] if days < 0 else [(f"d{days}", "dim")]
+        row = [("▊ ", hx), (nm[:_NAMEW].ljust(_NAMEW), None), (" ", None),
+               ("█" * fill, hx), ("░" * (_BAR - fill), _DIM),
+               ("  ", None), (f"{d_done}/{total}", "dim"), ("  ", None)] + chips
+        out.append(_emit(row, W))
+
+    if report["rescued"]:
         out.append("")
-        out.append(f"[dim]now[/dim] [#ffd166]▸ {esc(_proj_name(cur.get('project_id'), projs))}"
-                   f" · {esc(cur.get('title', '?'))}[/]")
+        out.append(_emit([(f"· {report['rescued']} task(s) rescued from a format change", "dim")], W))
     return "\n".join(out)
