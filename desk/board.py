@@ -255,9 +255,11 @@ def _fill(left: list, right: list, width: int, ch: str = "─", style: str = _DI
 
 
 def _banner(label: str, task: dict | None, title_style, projs: dict,
-            today: date, width: int, empty: str) -> str:
+            today: date, width: int, empty: str, beat: bool = False) -> str:
     """One hero row: coloured spine + label + (truncated) title · project, with
-    the due chip right-aligned. The title is trimmed so project + chip always fit."""
+    the due chip right-aligned. The title is trimmed so project + chip always fit.
+    When `beat`, the row gets a faint project-tinted background wash so the task
+    you're on NOW visibly breathes."""
     if not task:
         return _emit([("▐▐", _MUTED), ("  ", None), (label, "dim"),
                       ("  ", None), (empty, "dim")], width)
@@ -273,21 +275,34 @@ def _banner(label: str, task: dict | None, title_style, projs: dict,
     left = [("▐▐", hx), ("  ", None), (label, "dim"), ("  ", None),
             (title, title_style), (" · ", "dim"), (nm, hx)]
     right = [(chip[0], chip[1])] if chip else []
-    return _fill(left, right, width, ch=" ")
+    row = _fill(left, right, width, ch=" ")
+    return f"[on {_dark(hx)}]{row}[/]" if beat else row
 
 
 # ---- renderers --------------------------------------------------------------
-def render_tile(data: dict | None) -> str:
+def _dark(hexv: str, f: float = 0.22) -> str:
+    """A deep tint of a project colour, for the NOW heartbeat background wash."""
+    try:
+        r, g, b = (int(hexv[i:i + 2], 16) for i in (1, 3, 5))
+    except (ValueError, IndexError):
+        return "#14202a"
+    return "#%02x%02x%02x" % tuple(round(v * f) for v in (r, g, b))
+
+
+def render_tile(data: dict | None, beat: bool = False) -> str:
     if not data:
         return "› [dim](no board loaded)[/dim]"
     cur = current_doing(data)
     if not cur:
         return "› [dim](nothing in progress)[/dim]"
     name, hexv = _proj(cur.get("project_id"), _projects(data))
-    return f"[dim]›[/dim] [{hexv}]{esc(name)}[/] [#ffd166]{esc(cur['title'])}[/]"
+    body = f"[dim]›[/dim] [{hexv}]{esc(name)}[/] [#ffd166]{esc(cur['title'])}[/]"
+    # a doing task is alive → breathe a faint project-tinted wash on the beat
+    return f"[on {_dark(hexv)}]{body}[/]" if beat else body
 
 
-def render_body(data: dict | None, today: date | None = None, width: int = BODY_W) -> str:
+def render_body(data: dict | None, today: date | None = None, width: int = BODY_W,
+                beat: bool = False) -> str:
     if not data:
         return ("[bold #2dd4bf]BOARD[/]\n\n"
                 "[dim]no board at ~/.taskboard/board.json[/dim]\n"
@@ -311,7 +326,8 @@ def render_body(data: dict | None, today: date | None = None, width: int = BODY_
     out.append("")
 
     # NOW banner + next-up (title truncated so the project + due chip always fit)
-    out.append(_banner("NOW", now, "bold #ffd166", projs, today, W, empty="nothing in progress"))
+    out.append(_banner("NOW", now, "bold #ffd166", projs, today, W,
+                       empty="nothing in progress", beat=beat))
     out.append(_banner("nxt", nxt, None, projs, today, W, empty="queue empty"))
     out.append("")
 
