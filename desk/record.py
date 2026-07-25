@@ -254,6 +254,7 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
     else:
         out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
                 "[#ffd166]space[/] start recording",
+                "[#ffd166]i[/] transcribe an existing file",
                 "[#ffd166]t[/] open transcripts folder"]
         if auto_on:
             out.append(f"[#ffd166]auto-stop[/] {auto_min} min   [#ffd166]a[/] on/off · "
