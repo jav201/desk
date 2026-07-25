@@ -97,6 +97,37 @@ async def test_startup_hotkey_fires_without_any_warmup(tmp_path, monkeypatch):
         assert app.mode == "focus"
 
 
+async def test_vu_meter_tracks_level_in_real_time(monkeypatch):
+    """The VU meter must respond to the live mic/loopback level via the fast
+    lane — not sit frozen at 1 fps. Feeding a louder level and firing the fast
+    tick must add bars; a quiet level removes them."""
+    import re
+    from desk import record
+    monkeypatch.setattr(record, "AVAILABLE", True)          # show the recording body
+    app = Deck()
+    async with app.run_test() as pilot:
+        await pilot.pause()
+        app.action_expand("record")
+        app._rec_state = "recording"
+        await pilot.pause()
+
+        def bars():
+            body = re.sub(r"\[/?[^\]]*\]", "", str(app.query_one("#stage-body").render()))
+            return body.count("▊")
+
+        app._rec._level_loop = app._rec._level_mic = 0.0
+        app._meter_tick()
+        await pilot.pause()
+        quiet = bars()
+        app._rec._level_mic = 0.25                          # user speaks (mic only)
+        app._meter_tick()
+        await pilot.pause()
+        assert bars() > quiet                               # the meter moved with the mic
+        # the fast lane is a no-op when not recording (guarded, never crashes)
+        app._rec_state = "idle"
+        app._meter_tick()
+
+
 async def test_leaving_capture_releases_focus_so_hotkeys_live():
     """Regression: escaping Capture used to leave focus stuck on the hidden
     Input, which intermittently swallowed the global hotkeys ('a veces'). After

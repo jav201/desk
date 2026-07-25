@@ -105,6 +105,15 @@ class Deck(App):
         self.set_focus(None)           # belt-and-suspenders vs any mount auto-focus
         self._paint()
         self.set_interval(1.0, self._tick)
+        # a fast lane just for the live VU meter — the 1 s tick is far too slow
+        # for a level meter to look alive. No-op unless actually recording.
+        self.set_interval(0.1, self._meter_tick)
+
+    def _meter_tick(self) -> None:
+        """Repaint the record body ~10x/s while recording so the VU meter tracks
+        the mic/loopback level in real time (only when the panel is open)."""
+        if self._rec_state == "recording" and self.mode == "record":
+            self.query_one("#stage-body", Static).update(self._body("record"))
 
     def _tick(self) -> None:
         self.clock = datetime.now().strftime("%H:%M:%S")
