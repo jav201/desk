@@ -60,6 +60,29 @@ def test_fresh_recorder_not_running(tmp_path):
     assert r.seconds == 0.0
 
 
+def test_level_is_max_of_both_streams(tmp_path):
+    """The meter reads the LOUDER of loopback and mic, so the user's own voice
+    moves it even when nothing is playing through the speakers — the whole reason
+    the meter looked dead when testing by talking."""
+    r = record.Recorder(base_dir=tmp_path)
+    r._level_loop, r._level_mic = 0.0, 0.12
+    assert r.level == 0.12                     # mic alone drives the meter
+    r._level_loop, r._level_mic = 0.20, 0.05
+    assert r.level == 0.20                     # loopback wins when it's louder
+
+
+def test_meter_db_scale_is_sensitive_and_constant_width():
+    """A linear RMS scale left normal speech barely filling the bar. On the dB
+    scale, ordinary speech (RMS ~0.05) must fill a real chunk (>= a third), the
+    bar stays monotone and empty at silence, and its width is constant."""
+    strip = lambda s: __import__("re").sub(r"\[/?[^\]]*\]", "", s)
+    counts = [strip(record._meter(lv)).count("▊") for lv in (0.0, 0.01, 0.05, 0.15, 0.5)]
+    assert counts == sorted(counts) and counts[0] == 0            # monotone; empty at silence
+    assert strip(record._meter(0.05)).count("▊") >= record.METER_WIDTH // 3   # sensitive
+    for lv in (0.0, 0.05, 1.0):                                  # width never changes
+        assert len(strip(record._meter(lv))) == record.METER_WIDTH
+
+
 def test_render_tile_states():
     assert "record a meeting" in record.render_tile("idle")
     assert "REC" in record.render_tile("recording", seconds=65)
