@@ -16,6 +16,7 @@ panel-switch bindings `priority` so they fire regardless of focus.
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -28,6 +29,7 @@ from . import capture
 from . import focus
 from . import hints
 from . import record
+from .picker import AudioPicker
 
 PANELS = ("board", "focus", "capture", "record")
 BOARD_POLL_TICKS = 5          # auto-reload board.json every ~5s; F5 forces now
@@ -57,6 +59,7 @@ class Deck(App):
         Binding("m", "expand('record')", "Record", priority=True),
         ("o", "open_board", "Open board"),
         ("t", "open_transcripts", "Transcripts"),
+        Binding("i", "transcribe_file", "Transcribe file", show=False),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
         # pomodoro controls — shown inside the Focus panel, hidden from the footer
@@ -71,6 +74,14 @@ class Deck(App):
 
     mode = reactive("strip")
     clock = reactive("--:--:--")
+
+    def check_action(self, action: str, parameters: tuple[object, ...]) -> bool | None:
+        """While a modal (the audio picker) is open, disable the deck's own
+        hotkeys EXCEPT `collapse` — escape is repurposed (in action_collapse) to
+        close the modal, and everything else must stay inert behind it."""
+        if len(self.screen_stack) > 1:
+            return action == "collapse"
+        return True
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="strip"):
@@ -159,6 +170,9 @@ class Deck(App):
             self.set_focus(None)
 
     def action_collapse(self) -> None:
+        if len(self.screen_stack) > 1:          # a modal is open -> escape closes IT
+            self.screen.dismiss(None)
+            return
         self.mode = "strip"
         self._hide_input()
         self.query_one("#stage").add_class("hidden")
@@ -282,6 +296,44 @@ class Deck(App):
             self._last_transcript = text or "(no speech detected)"
             self.notify("transcript saved")
         self._paint()
+
+    # ---- transcribe an EXISTING file (in-app, via the picker) --------------
+    def action_transcribe_file(self) -> None:
+        """Open the audio picker to transcribe a file already on disk. Separate
+        from — and never disturbs — the live recording flow."""
+        from . import transcribe
+        if not transcribe.AVAILABLE:
+            self.notify("transcription needs: pip install desk[record]", severity="warning")
+            return
+        if self._rec_state != "idle":
+            self.notify("busy — finish the current job first", severity="warning")
+            return
+        self.push_screen(AudioPicker(start=Path.home()), self._on_file_picked)
+
+    def _on_file_picked(self, path: Path | None) -> None:
+        if not path:
+            return
+        self._rec_state = "transcribing"
+        self.mode = "record"
+        self.query_one("#stage").remove_class("hidden")
+        self._hide_input()
+        self._paint()
+        self.run_worker(lambda: self._run_file_transcription(path), thread=True,
+                        exclusive=True, group="transcribe")
+
+    def _run_file_transcription(self, path: Path) -> None:
+        """Worker thread: transcribe any audio file and write <name>.md beside it."""
+        try:
+            from . import transcribe
+            text = transcribe.transcribe_file(path)
+            body = text if text.strip() else "_(no speech detected)_"
+            path.with_suffix(".md").write_text(
+                f"# Transcript — {path.name}\n\n"
+                f"- Generated: {datetime.now():%Y-%m-%d %H:%M}\n\n{body}\n",
+                encoding="utf-8")
+            self.call_from_thread(self._on_transcribed, text, None)
+        except Exception as exc:
+            self.call_from_thread(self._on_transcribed, None, str(exc))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()

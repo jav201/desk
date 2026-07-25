@@ -49,6 +49,36 @@ Screen {
     color: #6b7787;
 }
 
+/* the audio picker modal (transcribe an existing file) — mirrors taskboard's
+   working modal pattern: a VerticalScroll box with align on the box itself. */
+AudioPicker {
+    align: center middle;
+    background: #0d1117 70%;
+}
+.pick {
+    width: 62;
+    max-width: 90%;
+    height: auto;
+    max-height: 90%;
+    padding: 1 2;
+    background: #0d1219;
+    border: round #2dd4bf;
+}
+#pick-box {
+    align: center middle;
+}
+#pick-body {
+    height: auto;
+    margin-top: 1;
+}
+.pick Input {
+    border: tall #1b2431;
+    background: #0b111a;
+}
+.pick Input:focus {
+    border: tall #2dd4bf;
+}
+
 Input {
     border: tall #1b2431;
     background: #0b111a;
