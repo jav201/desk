@@ -73,8 +73,15 @@ class Recorder:
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self.dir: Path | None = None
-        self.level = 0.0
+        # per-stream RMS, updated by each capture thread; the meter shows the
+        # louder of the two so the user's OWN mic moves it, not just loopback.
+        self._level_loop = 0.0
+        self._level_mic = 0.0
         self.frames = 0
+
+    @property
+    def level(self) -> float:
+        return max(self._level_loop, self._level_mic)
 
     @property
     def running(self) -> bool:
@@ -95,7 +102,8 @@ class Recorder:
         self._stop.clear()
         self._threads = []
         self.frames = 0
-        self.level = 0.0
+        self._level_loop = 0.0
+        self._level_mic = 0.0
         spk = sc.default_speaker()
         loop = sc.get_microphone(spk.name, include_loopback=True)
         mic = sc.default_microphone()
@@ -118,9 +126,12 @@ class Recorder:
                 with device.recorder(samplerate=SR, channels=1) as rec:
                     while not self._stop.is_set():
                         mono = rec.record(numframes=n).reshape(-1)
+                        lvl = float(np.sqrt((mono ** 2).mean())) if len(mono) else 0.0
                         if is_loop:
                             self.frames += len(mono)
-                            self.level = float(np.sqrt((mono ** 2).mean())) if len(mono) else 0.0
+                            self._level_loop = lvl
+                        else:
+                            self._level_mic = lvl
                         w.writeframes((np.clip(mono, -1, 1) * 32767).astype("<i2").tobytes())
             except Exception:               # a device that vanishes mid-record just ends its stream
                 pass
@@ -175,8 +186,15 @@ def _mmss(seconds: float) -> str:
 
 
 def _meter(level: float, width: int = 20) -> str:
+    """A live VU bar that fills green→gold→red with loudness (RMS ~0..0.3).
+    Split into zones so a glance reads quiet / talking / clipping."""
     filled = max(0, min(width, int(level * 3 * width)))
-    return f"[#ff3b30]{'▊' * filled}[/][dim]{'░' * (width - filled)}[/dim]"
+    lo_w, mid_w = int(width * 0.6), int(width * 0.25)
+    lo = min(filled, lo_w)
+    mid = min(max(0, filled - lo), mid_w)
+    hi = max(0, filled - lo - mid)
+    return (f"[#3fb950]{'▊' * lo}[/][#ffd166]{'▊' * mid}[/][#ff3b30]{'▊' * hi}[/]"
+            f"[dim]{'░' * (width - filled)}[/dim]")
 
 
 def _whisper_label() -> str:
