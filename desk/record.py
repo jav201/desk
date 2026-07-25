@@ -6,6 +6,7 @@ are guarded so the panel degrades gracefully when they're absent.
 from __future__ import annotations
 
 import importlib.util
+import math
 import threading
 import wave
 import json
@@ -185,10 +186,17 @@ def _mmss(seconds: float) -> str:
     return f"{s // 60:02d}:{s % 60:02d}"
 
 
-def _meter(level: float, width: int = 20) -> str:
-    """A live VU bar that fills green→gold→red with loudness (RMS ~0..0.3).
-    Split into zones so a glance reads quiet / talking / clipping."""
-    filled = max(0, min(width, int(level * 3 * width)))
+METER_WIDTH = 28          # cells in the VU bar
+METER_FLOOR_DB = -48.0    # RMS quieter than this reads as empty
+
+
+def _meter(level: float, width: int = METER_WIDTH) -> str:
+    """A live VU bar on a DECIBEL (perceptual) scale — a linear RMS scale left
+    normal speech (RMS ~0.03–0.1) barely filling. Maps [floor dB .. 0 dB] onto
+    the bar and colours it green→gold→red so a glance reads quiet/talking/clipping."""
+    db = 20.0 * math.log10(level) if level > 1e-6 else -120.0
+    frac = (db - METER_FLOOR_DB) / (0.0 - METER_FLOOR_DB)
+    filled = max(0, min(width, round(frac * width)))
     lo_w, mid_w = int(width * 0.6), int(width * 0.25)
     lo = min(filled, lo_w)
     mid = min(max(0, filled - lo), mid_w)

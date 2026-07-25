@@ -71,12 +71,16 @@ def test_level_is_max_of_both_streams(tmp_path):
     assert r.level == 0.20                     # loopback wins when it's louder
 
 
-def test_meter_grows_with_level_and_keeps_width():
+def test_meter_db_scale_is_sensitive_and_constant_width():
+    """A linear RMS scale left normal speech barely filling the bar. On the dB
+    scale, ordinary speech (RMS ~0.05) must fill a real chunk (>= a third), the
+    bar stays monotone and empty at silence, and its width is constant."""
     strip = lambda s: __import__("re").sub(r"\[/?[^\]]*\]", "", s)
-    counts = [strip(record._meter(lv)).count("▊") for lv in (0.0, 0.05, 0.15, 0.30)]
-    assert counts == sorted(counts) and counts[0] == 0 and counts[-1] > counts[1]
-    for lv in (0.0, 0.1, 0.5):                 # width is constant regardless of level
-        assert len(strip(record._meter(lv))) == 20
+    counts = [strip(record._meter(lv)).count("▊") for lv in (0.0, 0.01, 0.05, 0.15, 0.5)]
+    assert counts == sorted(counts) and counts[0] == 0            # monotone; empty at silence
+    assert strip(record._meter(0.05)).count("▊") >= record.METER_WIDTH // 3   # sensitive
+    for lv in (0.0, 0.05, 1.0):                                  # width never changes
+        assert len(strip(record._meter(lv))) == record.METER_WIDTH
 
 
 def test_render_tile_states():
