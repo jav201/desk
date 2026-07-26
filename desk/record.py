@@ -279,8 +279,11 @@ def render_fetching(info: dict, phase: int = 0) -> str:
     if frac is None:                       # probing: metadata only, nothing pulled
         out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{site}[/dim]")
         spin = FETCH_SPIN[phase % len(FETCH_SPIN)]
-        out.append(f"[#2dd4bf]{spin}[/] [#ffd166]reading title & duration — "
-                   f"no download yet[/]")
+        # a cancel pressed during the probe must show up here too, or the key
+        # looks dead until the download phase starts
+        note = (info.get("status") if info.get("status") == "cancelling…"
+                else "reading title & duration — no download yet")
+        out.append(f"[#2dd4bf]{spin}[/] [#ffd166]{note}[/]")
         out.append(f"[dim]{(info.get('url') or '')[:52]}[/dim]")
         out.append("")
     else:
@@ -291,8 +294,9 @@ def render_fetching(info: dict, phase: int = 0) -> str:
         out.extend(_intake_field(frac, phase))
         out.append(f"  [dim]{info.get('status') or 'downloading…'}   {site}[/dim]")
     out.append("")
-    # NOT "esc cancels": esc collapses the panel, the worker keeps going. Say so.
-    out.append("[dim]esc hides this · the job keeps running[/dim]")
+    # `x` really aborts the transfer; esc only collapses the panel. Two keys,
+    # two different promises — stated separately so neither is a lie.
+    out.append("[#ffd166]x[/] [dim]cancel · esc hides this, the job keeps running[/dim]")
     out += ["", "[#ff8c42]▲[/] [dim]respect each site's terms and the rights of "
             "content owners[/dim]"]
     return "\n".join(out)

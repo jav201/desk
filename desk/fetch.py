@@ -33,6 +33,11 @@ _URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
 _BAD_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
+class FetchCancelled(RuntimeError):
+    """The caller asked to stop mid-download. Distinct from a failure: nothing
+    went wrong, so callers should report it as cancelled rather than an error."""
+
+
 def is_url(text: str) -> bool:
     """True for an http(s) URL — what the picker uses to tell a URL from a path."""
     return bool(_URL_RE.match(text.strip()))
@@ -54,6 +59,20 @@ def safe_name(title: str, limit: int = 60) -> str:
     name = _BAD_CHARS.sub("", title or "").strip().strip(".")
     name = re.sub(r"\s+", " ", name)[:limit].strip()
     return name or "video"
+
+
+def _discard(out_dir: Path) -> None:
+    """Remove a cancelled download's folder, including yt-dlp's `.part` files —
+    a half-pulled stream is not something the user wants left on disk."""
+    try:
+        for p in out_dir.iterdir():
+            try:
+                p.unlink()
+            except OSError:
+                pass
+        out_dir.rmdir()
+    except OSError:
+        pass
 
 
 def probe(url: str) -> dict:
@@ -80,7 +99,8 @@ def probe(url: str) -> dict:
 
 
 def fetch_audio(url: str, base_dir: Path | None = None, stamp: str | None = None,
-                max_seconds: int = MAX_SECONDS, progress=None) -> tuple[Path, dict]:
+                max_seconds: int = MAX_SECONDS, progress=None,
+                cancelled=None) -> tuple[Path, dict]:
     """Download the best AUDIO-ONLY stream for `url` into its own folder under
     `base_dir`, keeping the native container (no ffmpeg re-encode).
 
@@ -108,12 +128,18 @@ def fetch_audio(url: str, base_dir: Path | None = None, stamp: str | None = None
     out_dir.mkdir(parents=True, exist_ok=True)
 
     def hook(d):
+        # the only place a running download can be interrupted: raising here
+        # makes yt-dlp abort the transfer instead of finishing it in the dark
+        if cancelled and cancelled():
+            raise FetchCancelled("cancelled")
         if not progress:
             return
         if d.get("status") == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate")
             got = d.get("downloaded_bytes") or 0
-            progress(got / total if total else None, "downloading…")
+            size = (f"{got / 1e6:.1f} / {total / 1e6:.1f} MB" if total
+                    else f"{got / 1e6:.1f} MB")
+            progress(got / total if total else None, f"downloading…  {size}")
         elif d.get("status") == "finished":
             progress(1.0, "downloaded")
 
@@ -133,6 +159,11 @@ def fetch_audio(url: str, base_dir: Path | None = None, stamp: str | None = None
         with yt_dlp.YoutubeDL(opts) as y:
             y.extract_info(url, download=True)
     except Exception as exc:
+        # yt-dlp wraps hook exceptions in its own DownloadError, so trust the
+        # caller's flag rather than the exception type to tell the two apart
+        if cancelled and cancelled():
+            _discard(out_dir)
+            raise FetchCancelled("cancelled") from None
         raise RuntimeError(f"download failed: {exc}") from exc
 
     got = sorted(p for p in out_dir.glob("audio.*") if p.is_file())

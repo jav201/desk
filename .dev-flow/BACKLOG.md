@@ -19,6 +19,7 @@ dropped silently.
 | In-app file transcription (`i` picker) | picker | #11 · 21fd4a9 |
 | Web video → audio → transcript (`u`, `i`, CLI, `[web]` extra) | THIS batch | 11f9041, 6593eba |
 | Braille-intake fetch treatment + clipboard prefill on `u` | THIS batch | (operator picked C + idea 9 after seeing the prototype) |
+| Real download cancellation (`x`), partial cleaned up | THIS batch | closes the honest gap flagged at first close |
 
 ## Open
 
@@ -31,10 +32,6 @@ dropped silently.
   as a dim suffix on the status line, ONCE it's confirmed that near-CBR m4a is
   the common case (the mapping bytes→time is wrong under VBR, so shipping it
   now would be a confident lie).
-- **Cancel a running fetch** — esc collapses the panel but does NOT interrupt
-  the worker. Caught during this batch's close: the hint used to read "esc
-  cancels", which was a lie, and now reads "esc hides this · the job keeps
-  running". Real cancellation (abort from the progress hook) is still unbuilt.
 
 ### Carried from earlier batches
 - **Pomodoro critical lub-dub** — 4 fps heartbeat under 2:00 remaining, via a

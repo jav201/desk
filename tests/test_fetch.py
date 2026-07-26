@@ -151,6 +151,53 @@ def test_fetch_reports_progress(monkeypatch, tmp_path):
     assert calls[-1] == (1.0, "downloaded")
 
 
+def test_cancel_aborts_the_transfer_and_leaves_no_partial(monkeypatch, tmp_path):
+    """`x` must really stop the download, not just hide it: the hook raises so
+    yt-dlp aborts mid-transfer, and the half-pulled folder is removed."""
+    def on_download(opts):
+        out = Path(opts["outtmpl"].replace("%(ext)s", "m4a.part"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"half a file")            # a partial download on disk
+        opts["progress_hooks"][0]({"status": "downloading",
+                                   "downloaded_bytes": 10, "total_bytes": 100})
+
+    install_fake_ytdlp(monkeypatch, info=INFO, on_download=on_download)
+    with pytest.raises(fetch.FetchCancelled):
+        fetch.fetch_audio("https://youtu.be/abc", base_dir=tmp_path,
+                          stamp="s", cancelled=lambda: True)
+    assert list(tmp_path.iterdir()) == []          # partial folder cleaned up
+
+
+def test_cancellation_is_not_reported_as_a_download_failure(monkeypatch, tmp_path):
+    """yt-dlp wraps hook exceptions in its own DownloadError, so the code must
+    trust the cancel FLAG — otherwise a user-initiated stop would surface as
+    'download failed', which reads like something broke."""
+    def on_download(opts):
+        raise Exception("DownloadError: interrupted")   # what yt-dlp really raises
+
+    install_fake_ytdlp(monkeypatch, info=INFO, on_download=on_download)
+    with pytest.raises(fetch.FetchCancelled):
+        fetch.fetch_audio("https://youtu.be/abc", base_dir=tmp_path,
+                          cancelled=lambda: True)
+    # …and with the flag down, the SAME failure is still a real error
+    with pytest.raises(RuntimeError, match="download failed"):
+        fetch.fetch_audio("https://youtu.be/abc", base_dir=tmp_path,
+                          cancelled=lambda: False)
+
+
+def test_uncancelled_fetch_is_untouched_by_the_flag(monkeypatch, tmp_path):
+    def on_download(opts):
+        out = Path(opts["outtmpl"].replace("%(ext)s", "m4a"))
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"audio")
+        opts["progress_hooks"][0]({"status": "finished"})
+
+    install_fake_ytdlp(monkeypatch, info=INFO, on_download=on_download)
+    path, _ = fetch.fetch_audio("https://youtu.be/abc", base_dir=tmp_path,
+                                cancelled=lambda: False)
+    assert path.exists()
+
+
 def test_fetch_requires_the_web_extra(monkeypatch, tmp_path):
     """AC-9: without [web] installed, the URL paths say so and do nothing else."""
     monkeypatch.setattr(fetch, "AVAILABLE", False)

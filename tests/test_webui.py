@@ -297,6 +297,66 @@ async def test_picked_url_starts_a_fetch_job(monkeypatch):
         assert app._fetch_info["url"] == URL
 
 
+async def test_x_cancels_a_running_download(monkeypatch):
+    """`x` raises the flag the worker's hook reads, so the transfer actually
+    stops. The panel promises this in words now, so it must be true."""
+    monkeypatch.setattr(fetch, "AVAILABLE", True)
+    app = Deck()
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        monkeypatch.setattr(app, "run_worker", lambda *a, **k: None)
+        app._start_url_job(URL)
+        await pilot.pause()
+        assert app._cancel_fetch is False
+        await pilot.press("x")
+        await pilot.pause()
+        assert app._cancel_fetch is True                     # the worker will abort
+        assert "cancelling" in _body(app)
+
+
+async def test_cancelled_download_ends_clean_not_as_an_error(monkeypatch):
+    """A cancel is a clean outcome: back to idle, and NO '(error: …)' left
+    pinned to the panel the way a real failure is."""
+    monkeypatch.setattr(fetch, "AVAILABLE", True)
+    def cancelled_fetch(url, **k):
+        raise fetch.FetchCancelled("cancelled")
+    monkeypatch.setattr(fetch, "fetch_audio", cancelled_fetch)
+    app = Deck()
+    notes = []
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        app.notify = lambda *a, **k: notes.append(a[0] if a else "")
+        monkeypatch.setattr(app, "call_from_thread", lambda fn, *a, **k: fn(*a, **k))
+        app._cancel_fetch = True
+        app._run_url_job(URL)
+        await pilot.pause()
+        assert app._rec_state == "idle" and app._fetch_info == {}
+        assert app._cancel_fetch is False                    # reset for the next job
+        assert any("cancelled" in n for n in notes)
+        assert not any("error" in n.lower() for n in notes)
+        assert "(error:" not in (app._last_transcript or "")
+
+
+async def test_x_during_transcription_says_it_cannot_cancel(monkeypatch):
+    """Only the fetch is interruptible — whisper has no safe mid-run abort — so
+    the key must say so rather than silently doing nothing."""
+    app = Deck()
+    notes = []
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        app.notify = lambda *a, **k: notes.append(a[0] if a else "")
+        app._rec_state = "transcribing"
+        app.action_cancel_job()
+        await pilot.pause()
+        assert any("can't be cancelled" in n for n in notes)
+
+
+def test_fetching_panel_advertises_both_keys():
+    out = _plain(record.render_fetching({"frac": 0.4, "site": "y"}))
+    assert "x cancel" in out                                  # really aborts
+    assert "esc hides" in out and "keeps running" in out       # only collapses
+
+
 async def test_failed_fetch_returns_to_idle_and_reports(monkeypatch):
     """AC-8: a refused/failed fetch must not strand the panel in 'fetching'."""
     monkeypatch.setattr(fetch, "AVAILABLE", True)

@@ -114,7 +114,7 @@ In the app, from the Record panel:
 - **`u`** — a URL prompt. If you'd already copied a link, it's offered as a dim suggestion: **copy → `u` → Enter**. Typing replaces it, and it is never submitted on its own.
 - **`i`** — the same picker you use for files also accepts a URL; paste one and it switches to a link card.
 
-Either way the audio pours in as a live braille intake field, then the transcript lands next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`.
+Either way the audio pours in as a live braille intake field, then the transcript lands next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`. **`x` cancels** a download in flight — it really aborts the transfer and deletes the partial file, unlike `esc`, which just hides the panel and leaves the job running.
 
 From the terminal, `desk-transcribe` takes URLs wherever it takes files:
 

@@ -61,6 +61,7 @@ class Deck(App):
         ("t", "open_transcripts", "Transcripts"),
         Binding("i", "transcribe_file", "Transcribe file", show=False),
         Binding("u", "transcribe_url", "Transcribe URL", show=False),
+        Binding("x", "cancel_job", "Cancel download", show=False),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
         # pomodoro controls — shown inside the Focus panel, hidden from the footer
@@ -107,6 +108,7 @@ class Deck(App):
         self._beat = False               # toggles each tick for the living panels
         self._fast = 0                   # 10 Hz counter: VU repaints + spinner phase
         self._fetch_info: dict = {}      # live state of a web-video download
+        self._cancel_fetch = False       # set by `x`, read by the fetch worker
         self._rec = record.Recorder()
         self._rec_state = "idle"
         self._last_transcript = None
@@ -353,7 +355,21 @@ class Deck(App):
         if url:
             self._start_url_job(url)
 
+    def action_cancel_job(self) -> None:
+        """`x`: actually stop a running download. Only the FETCH is interruptible
+        — once whisper has the audio there is no safe mid-run abort — so say so
+        instead of pretending the key did something."""
+        if self._rec_state == "fetching":
+            self._cancel_fetch = True
+            self._fetch_info["status"] = "cancelling…"
+            self._paint()
+            self.notify("cancelling the download…")
+        elif self._rec_state == "transcribing":
+            self.notify("transcription can't be cancelled — it's nearly done",
+                        severity="warning")
+
     def _start_url_job(self, url: str) -> None:
+        self._cancel_fetch = False
         self._fetch_info = {"url": url, "site": None, "title": None,
                             "duration": None, "frac": None, "status": "reading…"}
         self._enter_record_panel("fetching")
@@ -364,14 +380,14 @@ class Deck(App):
         """Worker thread: pull the audio, then transcribe it. Progress is written
         into `_fetch_info`, which the 10 Hz lane paints — no widget is touched
         from this thread."""
+        from . import fetch                 # bound before the try: the except
+        from . import transcribe            # clause below names fetch.FetchCancelled
         try:
-            from . import fetch
-            from . import transcribe
-
             def progress(frac, status):
                 self._fetch_info.update(frac=frac, status=status)
 
-            path, meta = fetch.fetch_audio(url, progress=progress)
+            path, meta = fetch.fetch_audio(url, progress=progress,
+                                           cancelled=lambda: self._cancel_fetch)
             self._fetch_info.update(title=meta.get("title"),
                                     duration=meta.get("duration"),
                                     site=meta.get("extractor"))
@@ -385,6 +401,8 @@ class Deck(App):
                 "GPU (float16)" if dev == "cuda" else "CPU (int8)",
                 source=meta.get("webpage_url") or url)
             self.call_from_thread(self._on_transcribed, text, None)
+        except fetch.FetchCancelled:
+            self.call_from_thread(self._on_cancelled)       # a clean stop, not a failure
         except Exception as exc:
             self.call_from_thread(self._on_transcribed, None, str(exc))
 
@@ -401,6 +419,15 @@ class Deck(App):
             self.call_from_thread(self._on_transcribed, text, None)
         except Exception as exc:
             self.call_from_thread(self._on_transcribed, None, str(exc))
+
+    def _on_cancelled(self) -> None:
+        """A cancelled download is a clean outcome, not an error: back to idle,
+        no '(error: …)' pinned to the panel, and the partial file is gone."""
+        self._rec_state = "idle"
+        self._fetch_info = {}
+        self._cancel_fetch = False
+        self.notify("download cancelled")
+        self._paint()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
