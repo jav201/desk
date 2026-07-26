@@ -56,6 +56,10 @@ desk
 | `s` / `r` | pomodoro skip / reset |
 | `+` / `-` | Focus: fewer/more pomodoros · Record: adjust auto-stop ±5 min |
 | `a` | Record: toggle auto-stop |
+| `i` | Record: transcribe an audio file already on disk (or paste a URL) |
+| `u` | Record: transcribe a web video by URL |
+| `x` | Record: cancel a download in flight |
+| `t` | Record: open the transcripts folder |
 | `o` | open the full board (taskboard) in a new terminal |
 | `F5` | refresh the board now |
 | `q` | quit |
