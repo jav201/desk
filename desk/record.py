@@ -244,7 +244,8 @@ def render_fetching(info: dict, phase: int = 0) -> str:
         out.append(f"  {_fetch_bar(frac)}  [#ffd166]{round(frac * 100):3d}%[/]")
         out.append(f"  [dim]{info.get('status') or 'downloading…'}[/dim]")
     out.append("")
-    out.append("[dim]esc cancels[/dim]")
+    # NOT "esc cancels": esc collapses the panel, the worker keeps going. Say so.
+    out.append("[dim]esc hides this · the job keeps running[/dim]")
     out += ["", "[#ff8c42]▲[/] [dim]respect each site's terms and the rights of "
             "content owners[/dim]"]
     return "\n".join(out)

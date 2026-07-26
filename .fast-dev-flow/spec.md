@@ -15,27 +15,27 @@ requirement.
   explicitly install the network extra.
 
 ## 3. Acceptance criteria (observable)
-- [ ] AC-1: given an http(s) video URL, `fetch_audio()` writes ONE audio file
+- [x] AC-1: given an http(s) video URL, `fetch_audio()` writes ONE audio file
       under `~/.desk/transcripts/<stamp>-<safe-title>/` and returns its path +
       metadata (title, duration, extractor).
-- [ ] AC-2: given a playlist/channel URL, exactly ONE video is downloaded
+- [x] AC-2: given a playlist/channel URL, exactly ONE video is downloaded
       (`noplaylist`), never the whole list.
-- [ ] AC-3: given a video longer than the cap (default 2 h), the download is
+- [x] AC-3: given a video longer than the cap (default 2 h), the download is
       REFUSED before any bytes are fetched, with a message naming the duration.
-- [ ] AC-4: given a non-http(s) URL (e.g. `file://`, `ftp://`), the request is
+- [x] AC-4: given a non-http(s) URL (e.g. `file://`, `ftp://`), the request is
       refused — the downloader is never handed a local-file scheme.
-- [ ] AC-5: given a title with filesystem-hostile characters (`/ \ : * ? " < > |`),
+- [x] AC-5: given a title with filesystem-hostile characters (`/ \ : * ? " < > |`),
       the created folder name contains none of them and is never empty.
-- [ ] AC-6: `desk-transcribe <url>` transcribes the video and writes a `.md`
+- [x] AC-6: `desk-transcribe <url>` transcribes the video and writes a `.md`
       whose header names the source URL and title; `desk-transcribe <file>`
       keeps working exactly as before.
-- [ ] AC-7: in-app, pasting a URL into the `i` picker input transcribes that
+- [x] AC-7: in-app, pasting a URL into the `i` picker input transcribes that
       video; pressing `u` opens a URL prompt that does the same.
-- [ ] AC-8: while fetching, the Record panel shows a distinct "fetching" state
+- [x] AC-8: while fetching, the Record panel shows a distinct "fetching" state
       with progress; on failure the panel returns to idle and reports the error.
-- [ ] AC-9: without the `[web]` extra installed, the URL paths report a clear
+- [x] AC-9: without the `[web]` extra installed, the URL paths report a clear
       "pip install desk[web]" message and NOTHING else in desk changes.
-- [ ] AC-10: the live recording flow (space -> record -> auto-transcribe) is
+- [x] AC-10: the live recording flow (space -> record -> auto-transcribe) is
       unchanged; the existing suite stays green.
 
 ## 4. Validation strategy
@@ -75,6 +75,6 @@ branch with `fetch_audio` monkeypatched.
 ## 7. Batch status
 | Field | Value |
 |-------|-------|
-| Current phase | A (awaiting approval) |
+| Current phase | C — CLOSED 2026-07-25 |
 | Started | 2026-07-24 |
 | Notes | 2 increments: (1) fetch.py + extra + CLI; (2) in-app `i`/`u` + progress. |
