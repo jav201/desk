@@ -12,6 +12,8 @@ dependencies = ["textual"]
 [project.optional-dependencies]
 test = ["pytest", "pytest-asyncio"]
 record = ["soundcard>=0.4.3", "faster-whisper>=1.0", "numpy>=1.24"]
+# the ONLY extra that touches the network — keeps an offline install offline
+web = ["yt-dlp>=2024.1"]
 
 [project.scripts]
 desk = "desk.app:main"

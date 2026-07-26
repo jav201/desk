@@ -67,9 +67,13 @@ AudioPicker {
 #pick-box {
     align: center middle;
 }
-#pick-body {
+#pick-body, #url-note {
     height: auto;
     margin-top: 1;
+}
+UrlPrompt {
+    align: center middle;
+    background: #0d1117 70%;
 }
 .pick Input {
     border: tall #1b2431;

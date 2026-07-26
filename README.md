@@ -56,6 +56,10 @@ desk
 | `s` / `r` | pomodoro skip / reset |
 | `+` / `-` | Focus: fewer/more pomodoros · Record: adjust auto-stop ±5 min |
 | `a` | Record: toggle auto-stop |
+| `i` | Record: transcribe an audio file already on disk (or paste a URL) |
+| `u` | Record: transcribe a web video by URL |
+| `x` | Record: cancel a download in flight |
+| `t` | Record: open the transcripts folder |
 | `o` | open the full board (taskboard) in a new terminal |
 | `F5` | refresh the board now |
 | `q` | quit |
@@ -104,6 +108,34 @@ desk-transcribe memo.mp3 -m small           # bigger model = better, slower (bas
 ```
 
 `-m/--model` takes any model name or a local path (same values as `DESK_WHISPER_MODEL` below); `-l/--language` forces a language code instead of auto-detecting.
+
+### Transcribe a web video — YouTube and ~1800 other sites
+
+Turn a tutorial, talk or interview into text you can search and skim. desk pulls **only the audio track** (never the video) and runs it through the same local transcriber. Needs one extra: `pip install -e ".[web]"`.
+
+In the app, from the Record panel:
+
+- **`u`** — a URL prompt. If you'd already copied a link, it's offered as a dim suggestion: **copy → `u` → Enter**. Typing replaces it, and it is never submitted on its own.
+- **`i`** — the same picker you use for files also accepts a URL; paste one and it switches to a link card.
+
+Either way the audio pours in as a live braille intake field, then the transcript lands next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`. **`x` cancels** a download in flight — it really aborts the transfer and deletes the partial file, unlike `esc`, which just hides the panel and leaves the job running.
+
+From the terminal, `desk-transcribe` takes URLs wherever it takes files:
+
+```bash
+desk-transcribe "https://www.youtube.com/watch?v=..."     # -> audio.m4a + audio.md
+desk-transcribe "https://…" -l es -m small                # force Spanish, bigger model
+```
+
+How it behaves, and why:
+
+- **Audio only, no re-encode.** The site's native stream (m4a/webm/opus) goes straight to faster-whisper, which decodes it via PyAV — so **ffmpeg is not required** and nothing is transcoded.
+- **One video, never a playlist.** A playlist or channel link fetches a single video, not the whole list.
+- **http(s) only.** Other schemes (`file://`, `ftp://`) are refused — a link must be a link.
+- **A 2-hour cap**, checked *before* downloading, so a long livestream can't quietly fill the disk.
+- **Opt-in networking.** This extra is the only part of desk that reaches the network; without it installed, desk stays entirely offline and the URL keys say so.
+
+Please respect each site's terms of service and the rights of content owners — use this on material you're allowed to process.
 
 ### Offline / locked-down machines
 
