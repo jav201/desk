@@ -30,8 +30,8 @@ _ESC = ("esc", "strip", 0)
 _CONTEXT = {
     "focus": [("space", "start/pause", 1), ("s", "skip", 2),
               ("r", "reset", 2), ("+/-", "set", 3)],
-    "record": [("space", "rec/stop", 1), ("i", "file", 2), ("a", "auto-stop", 2),
-               ("t", "scripts", 3)],
+    "record": [("space", "rec/stop", 1), ("i", "file", 2), ("u", "url", 2),
+               ("a", "auto-stop", 2), ("t", "scripts", 3)],
     "board": [("o", "open board", 2), ("F5", "refresh", 2)],
     # "capture" is handled specially in hints_for (its text box holds focus).
 }

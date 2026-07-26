@@ -29,7 +29,7 @@ from . import capture
 from . import focus
 from . import hints
 from . import record
-from .picker import AudioPicker
+from .picker import AudioPicker, UrlPrompt
 
 PANELS = ("board", "focus", "capture", "record")
 BOARD_POLL_TICKS = 5          # auto-reload board.json every ~5s; F5 forces now
@@ -60,6 +60,8 @@ class Deck(App):
         ("o", "open_board", "Open board"),
         ("t", "open_transcripts", "Transcripts"),
         Binding("i", "transcribe_file", "Transcribe file", show=False),
+        Binding("u", "transcribe_url", "Transcribe URL", show=False),
+        Binding("x", "cancel_job", "Cancel download", show=False),
         ("f5", "refresh", "Refresh"),
         ("q", "quit", "Quit"),
         # pomodoro controls — shown inside the Focus panel, hidden from the footer
@@ -104,6 +106,9 @@ class Deck(App):
         self._last_saved = None
         self._ticks = 0
         self._beat = False               # toggles each tick for the living panels
+        self._fast = 0                   # 10 Hz counter: VU repaints + spinner phase
+        self._fetch_info: dict = {}      # live state of a web-video download
+        self._cancel_fetch = False       # set by `x`, read by the fetch worker
         self._rec = record.Recorder()
         self._rec_state = "idle"
         self._last_transcript = None
@@ -121,9 +126,11 @@ class Deck(App):
         self.set_interval(0.1, self._meter_tick)
 
     def _meter_tick(self) -> None:
-        """Repaint the record body ~10x/s while recording so the VU meter tracks
-        the mic/loopback level in real time (only when the panel is open)."""
-        if self._rec_state == "recording" and self.mode == "record":
+        """The 10 Hz lane: repaints the record body while the VU meter is live OR
+        a download is running, so both track reality instead of crawling at 1 fps.
+        A no-op in every other state."""
+        self._fast += 1
+        if self.mode == "record" and self._rec_state in ("recording", "fetching"):
             self.query_one("#stage-body", Static).update(self._body("record"))
 
     def _tick(self) -> None:
@@ -289,6 +296,7 @@ class Deck(App):
 
     def _on_transcribed(self, text, err) -> None:
         self._rec_state = "idle"
+        self._fetch_info = {}
         if err:
             self._last_transcript = f"(error: {err})"
             self.notify(f"transcription failed: {err}", severity="error")
@@ -310,16 +318,93 @@ class Deck(App):
             return
         self.push_screen(AudioPicker(start=Path.home()), self._on_file_picked)
 
-    def _on_file_picked(self, path: Path | None) -> None:
-        if not path:
+    def _on_file_picked(self, picked) -> None:
+        """The picker hands back a Path (local file) or a str (a web URL)."""
+        if not picked:
             return
-        self._rec_state = "transcribing"
+        if isinstance(picked, str):
+            self._start_url_job(picked)
+            return
+        self._enter_record_panel("transcribing")
+        self.run_worker(lambda: self._run_file_transcription(picked), thread=True,
+                        exclusive=True, group="transcribe")
+
+    def _enter_record_panel(self, state: str) -> None:
+        self._rec_state = state
         self.mode = "record"
         self.query_one("#stage").remove_class("hidden")
         self._hide_input()
         self._paint()
-        self.run_worker(lambda: self._run_file_transcription(path), thread=True,
+
+    # ---- transcribe a WEB VIDEO (fetch its audio, then transcribe) ---------
+    def action_transcribe_url(self) -> None:
+        from . import fetch
+        from . import transcribe
+        if not transcribe.AVAILABLE:
+            self.notify("transcription needs: pip install desk[record]", severity="warning")
+            return
+        if not fetch.AVAILABLE:
+            self.notify("web video needs: pip install desk[web]", severity="warning")
+            return
+        if self._rec_state != "idle":
+            self.notify("busy — finish the current job first", severity="warning")
+            return
+        self.push_screen(UrlPrompt(), self._on_url_entered)
+
+    def _on_url_entered(self, url: str | None) -> None:
+        if url:
+            self._start_url_job(url)
+
+    def action_cancel_job(self) -> None:
+        """`x`: actually stop a running download. Only the FETCH is interruptible
+        — once whisper has the audio there is no safe mid-run abort — so say so
+        instead of pretending the key did something."""
+        if self._rec_state == "fetching":
+            self._cancel_fetch = True
+            self._fetch_info["status"] = "cancelling…"
+            self._paint()
+            self.notify("cancelling the download…")
+        elif self._rec_state == "transcribing":
+            self.notify("transcription can't be cancelled — it's nearly done",
+                        severity="warning")
+
+    def _start_url_job(self, url: str) -> None:
+        self._cancel_fetch = False
+        self._fetch_info = {"url": url, "site": None, "title": None,
+                            "duration": None, "frac": None, "status": "reading…"}
+        self._enter_record_panel("fetching")
+        self.run_worker(lambda: self._run_url_job(url), thread=True,
                         exclusive=True, group="transcribe")
+
+    def _run_url_job(self, url: str) -> None:
+        """Worker thread: pull the audio, then transcribe it. Progress is written
+        into `_fetch_info`, which the 10 Hz lane paints — no widget is touched
+        from this thread."""
+        from . import fetch                 # bound before the try: the except
+        from . import transcribe            # clause below names fetch.FetchCancelled
+        try:
+            def progress(frac, status):
+                self._fetch_info.update(frac=frac, status=status)
+
+            path, meta = fetch.fetch_audio(url, progress=progress,
+                                           cancelled=lambda: self._cancel_fetch)
+            self._fetch_info.update(title=meta.get("title"),
+                                    duration=meta.get("duration"),
+                                    site=meta.get("extractor"))
+            self.call_from_thread(self._enter_record_panel, "transcribing")
+            text = transcribe.transcribe_file(path)
+            body = text if text.strip() else "_(no speech detected)_"
+            dev = transcribe.active_device() or transcribe.planned_device()
+            transcribe._write_md(
+                path.with_suffix(".md"), meta.get("title") or path.name, body,
+                transcribe.DEFAULT_MODEL,
+                "GPU (float16)" if dev == "cuda" else "CPU (int8)",
+                source=meta.get("webpage_url") or url)
+            self.call_from_thread(self._on_transcribed, text, None)
+        except fetch.FetchCancelled:
+            self.call_from_thread(self._on_cancelled)       # a clean stop, not a failure
+        except Exception as exc:
+            self.call_from_thread(self._on_transcribed, None, str(exc))
 
     def _run_file_transcription(self, path: Path) -> None:
         """Worker thread: transcribe any audio file and write <name>.md beside it."""
@@ -334,6 +419,15 @@ class Deck(App):
             self.call_from_thread(self._on_transcribed, text, None)
         except Exception as exc:
             self.call_from_thread(self._on_transcribed, None, str(exc))
+
+    def _on_cancelled(self) -> None:
+        """A cancelled download is a clean outcome, not an error: back to idle,
+        no '(error: …)' pinned to the panel, and the partial file is gone."""
+        self._rec_state = "idle"
+        self._fetch_info = {}
+        self._cancel_fetch = False
+        self.notify("download cancelled")
+        self._paint()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         text = event.value.strip()
@@ -369,7 +463,8 @@ class Deck(App):
         if which == "record":
             return record.render_body(self._rec_state, self._rec.seconds,
                                       self._rec.level, self._last_transcript,
-                                      self._auto_on, self._auto_min)
+                                      self._auto_on, self._auto_min,
+                                      fetch=self._fetch_info, phase=self._fast)
         return capture.render_body(capture.pick_prompt(self._prompt_i), self._last_saved)
 
     def _paint(self) -> None:

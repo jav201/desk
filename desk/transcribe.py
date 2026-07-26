@@ -138,17 +138,31 @@ def transcribe_file(path: Path, model_size: str = DEFAULT_MODEL,
     return " ".join(s.text.strip() for s in segments).strip()
 
 
-def main(argv=None) -> None:
-    """CLI `desk-transcribe`: transcribe existing audio files locally/offline
-    (GPU when present, else CPU), writing `<name>.md` beside each one."""
-    import argparse
+def _write_md(out: Path, title: str, body: str, model: str, backend: str,
+              source: str | None = None) -> None:
     from datetime import datetime
+    lines = [f"# Transcript — {title}\n",
+             f"- Generated: {datetime.now():%Y-%m-%d %H:%M}"]
+    if source:
+        lines.append(f"- Source: {source}")
+    lines.append(f"- Model: faster-whisper `{model}` on {backend}\n")
+    out.write_text("\n".join(lines) + f"\n{body}\n", encoding="utf-8")
+
+
+def main(argv=None) -> None:
+    """CLI `desk-transcribe`: transcribe audio files — or the audio of a web
+    video URL — locally (GPU when present, else CPU), writing `<name>.md` beside
+    each result."""
+    import argparse
 
     ap = argparse.ArgumentParser(
         prog="desk-transcribe",
-        description="Transcribe audio files locally with faster-whisper "
-                    "(offline; GPU when available, else CPU).")
-    ap.add_argument("files", nargs="+", type=Path, help="audio files (m4a, mp3, wav, …)")
+        description="Transcribe audio locally with faster-whisper (GPU when "
+                    "available, else CPU). Takes audio files, or video URLs "
+                    "when the [web] extra is installed.")
+    # NOT type=Path: pathlib collapses the '//' in a URL on Windows.
+    ap.add_argument("targets", nargs="+", metavar="TARGET",
+                    help="audio files (m4a, mp3, wav, …) or http(s) video URLs")
     ap.add_argument("-m", "--model", default=DEFAULT_MODEL,
                     help=f"whisper model name or local path (default: {DEFAULT_MODEL})")
     ap.add_argument("-l", "--language", default=None,
@@ -158,20 +172,33 @@ def main(argv=None) -> None:
     if not AVAILABLE:
         raise SystemExit("transcription needs the optional extra: pip install desk[record]")
 
-    for f in args.files:
-        if not f.exists():
-            print(f"skip (not found): {f}")
-            continue
-        text = transcribe_file(f, model_size=args.model, language=args.language)
+    from . import fetch
+    for target in args.targets:
+        source = None
+        if fetch.is_url(target):
+            if not fetch.AVAILABLE:
+                print(f"skip (needs: pip install desk[web]): {target}")
+                continue
+            try:
+                print(f"fetching audio: {target}")
+                path, meta = fetch.fetch_audio(target)
+            except RuntimeError as exc:
+                print(f"skip ({exc}): {target}")
+                continue
+            title, source = meta["title"], meta["webpage_url"]
+        else:
+            path = Path(target)
+            if not path.exists():
+                print(f"skip (not found): {path}")
+                continue
+            title = path.name
+
+        text = transcribe_file(path, model_size=args.model, language=args.language)
         dev = active_device() or planned_device()
         backend = "GPU (float16)" if dev == "cuda" else "CPU (int8)"
         body = text if text.strip() else "_(no speech detected)_"
-        out = f.with_suffix(".md")
-        out.write_text(
-            f"# Transcript — {f.name}\n\n"
-            f"- Generated: {datetime.now():%Y-%m-%d %H:%M}\n"
-            f"- Model: faster-whisper `{args.model}` on {backend}\n\n"
-            f"{body}\n", encoding="utf-8")
+        out = path.with_suffix(".md")
+        _write_md(out, title, body, args.model, backend, source)
         print(f"-> {out}  [{backend}]")
 
 
