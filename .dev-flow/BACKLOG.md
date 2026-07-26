@@ -18,15 +18,15 @@ dropped silently.
 | `desk-transcribe` CLI for existing audio files | CLI | #10 · 38a5cc7 |
 | In-app file transcription (`i` picker) | picker | #11 · 21fd4a9 |
 | Web video → audio → transcript (`u`, `i`, CLI, `[web]` extra) | THIS batch | 11f9041, 6593eba |
+| Braille-intake fetch treatment + clipboard prefill on `u` | THIS batch | (operator picked C + idea 9 after seeing the prototype) |
 
 ## Open
 
 ### Deferred by design (came out of this batch)
-- **Clipboard prefill on `u`** — if the clipboard holds an http(s) link, prefill
-  it dimmed; typing replaces it, and it never auto-submits. Proposed by the
-  design prototype; deliberately left out of scope (not derivable from an
-  approved acceptance criterion, and it adds a privacy surface). Artifact:
-  `c60a8c5a-5139-481e-a463-3f12128842e9`.
+- **Fetch treatments A and B are unbuilt.** The operator picked C (braille
+  intake) after seeing the prototype; A (meter lane, reusing the VU geometry)
+  was implemented first and then replaced. Both remain in the artifact
+  `c60a8c5a-5139-481e-a463-3f12128842e9` if the call is ever revisited.
 - **Time projection on the fetch bar** — steal treatment B's "~23:22 pulled"
   as a dim suffix on the status line, ONCE it's confirmed that near-CBR m4a is
   the common case (the mapping bytes→time is wrong under VBR, so shipping it

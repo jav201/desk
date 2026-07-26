@@ -32,7 +32,7 @@ def test_probe_phase_says_nothing_is_downloading_yet():
     assert any(ch in out for ch in record.FETCH_SPIN)      # the spinner is drawn
 
 
-def test_download_phase_shows_bar_percent_title_and_size():
+def test_download_phase_shows_field_percent_title_and_size():
     info = {"url": URL, "site": "youtube", "title": "Deep Learning Talk",
             "duration": 2462, "frac": 0.5, "status": "downloading…  9.2 / 18.4 MB"}
     out = _plain(record.render_fetching(info))
@@ -40,16 +40,44 @@ def test_download_phase_shows_bar_percent_title_and_size():
     assert "41:02" in out                                   # duration, mm:ss
     assert "50%" in out
     assert "9.2 / 18.4 MB" in out
-    assert "▊" in out and "░" in out                        # the meter-lane bar
+    assert any(0x2800 <= ord(ch) <= 0x28ff for ch in out)   # the braille intake
 
 
-def test_fetch_bar_tracks_the_fraction_at_constant_width():
-    strip = lambda f: _plain(record._fetch_bar(f))
-    counts = [strip(f).count("▊") for f in (0.0, 0.25, 0.5, 1.0)]
-    assert counts == sorted(counts) and counts[0] == 0
-    assert counts[-1] == record.METER_WIDTH                 # full at 100%
-    for f in (0.0, 0.4, 1.0):                               # width never moves
-        assert len(strip(f)) == record.METER_WIDTH
+def _lit(frac, phase=0):
+    total = 0
+    for ln in record._intake_field(frac, phase):
+        for ch in _plain(ln):
+            if ch != " ":
+                total += bin(ord(ch) - 0x2800).count("1")
+    return total
+
+
+def test_intake_field_fills_with_progress():
+    """Treatment C: the field is the progress. If its mass stopped tracking the
+    fraction the panel would be decoration, not a readout."""
+    counts = [_lit(f / 20) for f in range(21)]
+    assert counts == sorted(counts)                         # monotone, never regresses
+    assert _lit(0.5) > _lit(0.15) > 0
+    full = record.INTAKE_COLS * 2 * record.INTAKE_ROWS * 4
+    assert _lit(1.0) == full        # 100% is genuinely FULL, no ragged edge left
+
+
+def test_intake_field_is_width_exact_and_narrow_glyphs():
+    import unicodedata
+    rows = record._intake_field(0.5)
+    assert len(rows) == record.INTAKE_ROWS
+    assert len({len(_plain(r)) for r in rows}) == 1
+    for r in rows:
+        for ch in _plain(r):
+            assert unicodedata.east_asian_width(ch) not in ("W", "F"), repr(ch)
+
+
+def test_intake_shape_is_stable_across_repaints():
+    """The jitter is seeded, so a repaint at the same fraction must not reshuffle
+    the field — otherwise it would boil instead of fill."""
+    assert record._intake_field(0.4, phase=2) == record._intake_field(0.4, phase=2)
+    body = lambda p: _plain(record.render_fetching({"frac": 0.4, "site": "y"}, p))
+    assert body(1) != body(2)        # …but the sparks ahead of the front do twinkle
 
 
 def test_fetching_state_routes_through_render_body():
@@ -115,6 +143,76 @@ async def test_url_prompt_dismisses_with_a_valid_url(monkeypatch):
         await pilot.press("enter")
         await pilot.pause()
         assert got["res"] == URL
+
+
+async def test_clipboard_link_is_offered_but_never_auto_submitted(monkeypatch):
+    """The copy → u → Enter flow: a link already on the clipboard is offered as
+    the (dim) placeholder and accepted by Enter on an empty box. It must NOT
+    submit on its own — the clipboard may hold something the user never meant
+    to send anywhere."""
+    monkeypatch.setattr(fetch, "AVAILABLE", True)
+    app = Deck()
+    got = {}
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        app.push_screen(UrlPrompt(suggestion=URL), lambda r: got.update(res=r))
+        await pilot.pause()
+        prompt = app.screen
+        assert prompt.query_one("#url-input").placeholder == URL   # offered, dim
+        assert prompt.query_one("#url-input").value == ""          # box still empty
+        assert "clipboard" in _plain(str(prompt.query_one("#url-note").render()))
+        assert not got                                             # nothing sent yet
+        await pilot.press("enter")                                 # the user accepts
+        await pilot.pause()
+        assert got["res"] == URL
+
+
+async def test_typing_replaces_the_clipboard_suggestion(monkeypatch):
+    monkeypatch.setattr(fetch, "AVAILABLE", True)
+    other = "https://vimeo.com/999"
+    app = Deck()
+    got = {}
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        app.push_screen(UrlPrompt(suggestion=URL), lambda r: got.update(res=r))
+        await pilot.pause()
+        app.screen.query_one("#url-input").value = other
+        await pilot.press("enter")
+        await pilot.pause()
+        assert got["res"] == other                 # what was typed wins
+
+
+async def test_no_clipboard_link_leaves_the_prompt_empty(monkeypatch):
+    monkeypatch.setattr(fetch, "AVAILABLE", True)
+    app = Deck()
+    async with app.run_test(size=(90, 22)) as pilot:
+        await pilot.pause()
+        app.push_screen(UrlPrompt(suggestion=""))       # clipboard held no link
+        await pilot.pause()
+        prompt = app.screen
+        assert prompt.query_one("#url-input").placeholder.startswith("https://…")
+        await pilot.press("enter")                      # Enter on empty does nothing
+        await pilot.pause()
+        assert isinstance(app.screen, UrlPrompt)        # still open, not dismissed
+
+
+def test_clipboard_url_only_returns_http_links(monkeypatch):
+    """Whatever is on the clipboard, only an http(s) link is ever offered."""
+    from desk import picker
+    for junk in ("just some copied text", "C:\\Users\\me\\secret.txt",
+                 "file:///etc/passwd", ""):
+        monkeypatch.setattr(picker, "clipboard_text", lambda j=junk: j)
+        assert picker.clipboard_url() is None
+    monkeypatch.setattr(picker, "clipboard_text", lambda: f"  {URL}  \nsecond line")
+    assert picker.clipboard_url() == URL                # trimmed, first line only
+
+
+def test_clipboard_read_failure_is_survivable(monkeypatch):
+    from desk import picker
+    def boom():
+        raise OSError("no clipboard here")
+    monkeypatch.setattr(picker, "clipboard_text", boom)
+    assert picker.clipboard_url() is None                # guarded, never raises
 
 
 async def test_u_reports_when_the_web_extra_is_missing(monkeypatch):

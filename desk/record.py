@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import importlib.util
 import math
+import random
 import threading
 import wave
 import json
@@ -206,20 +207,66 @@ def _meter(level: float, width: int = METER_WIDTH) -> str:
 
 
 FETCH_SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"      # braille spinner for the metadata-probe phase
-_FETCH_FILL = "#2dd4bf"           # teal: the download lane
-_FETCH_LEAD = "#7ff3e4"           # brighter leading cell, so the bar ARRIVES
+_FETCH_FILL = "#2dd4bf"           # teal: audio that has landed
+_FETCH_LEAD = "#7ff3e4"           # the arriving front, brighter so it moves
+INTAKE_COLS = 44                  # braille cells per row (2 dots wide each)
+INTAKE_ROWS = 2
+_INTAKE_SEED = 90
+# (x, y) dot -> braille bit, per the Unicode block's layout
+_BIT = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
+        (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 
 
-def _fetch_bar(frac: float, width: int = METER_WIDTH) -> str:
-    """Download progress drawn on the VU meter's exact geometry — the same 28
-    cells the eye already reads in this panel, so the bar needs no learning."""
-    filled = max(0, min(width, round((frac or 0.0) * width)))
-    out = ""
-    if filled > 1:
-        out += f"[{_FETCH_FILL}]{'▊' * (filled - 1)}[/]"
-    if filled >= 1:
-        out += f"[{_FETCH_LEAD}]▊[/]"
-    return out + f"[dim]{'░' * (width - filled)}[/dim]"
+def _intake_field(frac: float, phase: int = 0, cols: int = INTAKE_COLS,
+                  rows: int = INTAKE_ROWS) -> list[str]:
+    """Treatment C — the audio pouring in as a braille field that fills
+    left→right. Per-dot jitter (seeded, so the shape is stable across repaints)
+    gives the front an irregular edge instead of a ruler line, and sparse dots
+    flicker just ahead of it as "incoming". Distinct from the Focus panel's
+    ember field on purpose: this one FILLS in one flat teal, while the ember
+    field DRAINS along a temperature ramp."""
+    frac = max(0.0, min(1.0, frac or 0.0))
+    rng = random.Random(_INTAKE_SEED)
+    W, H = cols * 2, rows * 4
+    jit = {(x, y): rng.uniform(0, 7) for y in range(H) for x in range(W)}
+    spark = {(x, y): rng.random() < 0.05 for y in range(H) for x in range(W)}
+    # scale past the last column by the max jitter, so 100% is genuinely FULL
+    # instead of leaving a ragged right edge when the download has finished
+    front = frac * (W + 7)
+    out = []
+    for cy in range(rows):
+        cells = []
+        for cx in range(cols):
+            mask, kind = 0, None
+            for y in range(4):
+                for x in range(2):
+                    dx, dy = cx * 2 + x, cy * 4 + y
+                    if dx + jit[(dx, dy)] < front:
+                        mask |= _BIT[(x, y)]
+                        kind = "fill"
+                    elif dx < front + 10 and spark[(dx, dy)] and (dx + phase) % 3:
+                        mask |= _BIT[(x, y)]      # incoming, twinkling on the fast lane
+                        kind = kind or "ahead"
+            if not mask:
+                cells.append((" ", None))
+            elif kind == "ahead":
+                cells.append((chr(0x2800 + mask), "dim"))
+            elif abs(cx * 2 - front) < 5:
+                cells.append((chr(0x2800 + mask), _FETCH_LEAD))
+            else:
+                cells.append((chr(0x2800 + mask), _FETCH_FILL))
+        row, j = "  ", 0                          # coalesce equal-colour runs
+        while j < len(cells):
+            col = cells[j][1]
+            k = j
+            while k < len(cells) and cells[k][1] == col:
+                k += 1
+            chunk = "".join(cells[i][0] for i in range(j, k))
+            row += (f"[dim]{chunk}[/dim]" if col == "dim"
+                    else f"[{col}]{chunk}[/]" if col else chunk)
+            j = k
+        out.append(row)
+    return out
 
 
 def render_fetching(info: dict, phase: int = 0) -> str:
@@ -228,21 +275,21 @@ def render_fetching(info: dict, phase: int = 0) -> str:
     `phase` advances the spinner on the fast repaint lane."""
     out = ["[bold #2dd4bf]RECORD[/]", ""]
     site = info.get("site") or "web"
-    out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{site}[/dim]")
     frac = info.get("frac")
     if frac is None:                       # probing: metadata only, nothing pulled
+        out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{site}[/dim]")
         spin = FETCH_SPIN[phase % len(FETCH_SPIN)]
         out.append(f"[#2dd4bf]{spin}[/] [#ffd166]reading title & duration — "
                    f"no download yet[/]")
         out.append(f"[dim]{(info.get('url') or '')[:52]}[/dim]")
-    else:
-        if info.get("title"):
-            out.append(f"[#dbe4ee]{info['title'][:52]}[/]")
-        dur = _mmss(info["duration"]) if info.get("duration") else "?"
-        out.append(f"[dim]{dur} · audio only · no re-encode[/dim]")
         out.append("")
-        out.append(f"  {_fetch_bar(frac)}  [#ffd166]{round(frac * 100):3d}%[/]")
-        out.append(f"  [dim]{info.get('status') or 'downloading…'}[/dim]")
+    else:
+        pct = round(frac * 100)
+        out.append(f"[#2dd4bf]◆[/] fetching audio   [#ffd166]{pct}%[/]")
+        dur = f" · {_mmss(info['duration'])}" if info.get("duration") else ""
+        out.append(f"[dim]{(info.get('title') or 'audio')[:44]}{dur}[/dim]")
+        out.extend(_intake_field(frac, phase))
+        out.append(f"  [dim]{info.get('status') or 'downloading…'}   {site}[/dim]")
     out.append("")
     # NOT "esc cancels": esc collapses the panel, the worker keeps going. Say so.
     out.append("[dim]esc hides this · the job keeps running[/dim]")

@@ -111,10 +111,10 @@ Turn a tutorial, talk or interview into text you can search and skim. desk pulls
 
 In the app, from the Record panel:
 
-- **`u`** — paste a video URL into the prompt.
+- **`u`** — a URL prompt. If you'd already copied a link, it's offered as a dim suggestion: **copy → `u` → Enter**. Typing replaces it, and it is never submitted on its own.
 - **`i`** — the same picker you use for files also accepts a URL; paste one and it switches to a link card.
 
-Either way you get a live download bar, then the transcript, saved next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`.
+Either way the audio pours in as a live braille intake field, then the transcript lands next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`.
 
 From the terminal, `desk-transcribe` takes URLs wherever it takes files:
 

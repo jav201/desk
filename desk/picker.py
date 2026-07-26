@@ -62,6 +62,62 @@ def _fit(s: str, w: int) -> str:
     return s if len(s) <= w else "…" + s[-(w - 1):]
 
 
+def clipboard_text() -> str:
+    """Best-effort read of the OS clipboard. Textual can't do this (it only
+    WRITES, via OSC 52), so we ask the OS directly: ctypes on Windows (instant,
+    no dependency), pyperclip if it happens to be installed, else the platform's
+    paste command. Every path is guarded — if the clipboard can't be read we
+    simply return "" and the prompt opens empty."""
+    import sys
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            u32, k32 = ctypes.windll.user32, ctypes.windll.kernel32
+            k32.GlobalLock.restype = ctypes.c_void_p      # else truncated on 64-bit
+            k32.GlobalLock.argtypes = [ctypes.c_void_p]
+            k32.GlobalUnlock.argtypes = [ctypes.c_void_p]
+            u32.GetClipboardData.restype = ctypes.c_void_p
+            if not u32.OpenClipboard(0):
+                return ""
+            try:
+                handle = u32.GetClipboardData(13)         # CF_UNICODETEXT
+                if not handle:
+                    return ""
+                ptr = k32.GlobalLock(handle)
+                try:
+                    return ctypes.c_wchar_p(ptr).value or ""
+                finally:
+                    k32.GlobalUnlock(handle)
+            finally:
+                u32.CloseClipboard()
+        except Exception:
+            return ""
+    try:
+        import pyperclip
+        return pyperclip.paste() or ""
+    except Exception:
+        pass
+    try:
+        import subprocess
+        cmd = (["pbpaste"] if sys.platform == "darwin"
+               else ["xclip", "-selection", "clipboard", "-o"])
+        return subprocess.run(cmd, capture_output=True, text=True,
+                              timeout=2).stdout or ""
+    except Exception:
+        return ""
+
+
+def clipboard_url() -> str | None:
+    """The clipboard's contents IF they are an http(s) link, else None. Read
+    once when the prompt opens — never polled, and never sent anywhere."""
+    from . import fetch
+    try:
+        text = (clipboard_text() or "").strip().split("\n")[0].strip()
+    except Exception:
+        return None
+    return text if fetch.is_url(text) else None
+
+
 class AudioPicker(ModalScreen):
     """Paste a path (Enter) OR browse with ↑/↓ + Enter. Enter on a folder
     descends into it; Enter on an audio file — or a valid pasted file path —
@@ -182,7 +238,20 @@ class AudioPicker(ModalScreen):
 class UrlPrompt(ModalScreen):
     """A one-line prompt for a video URL (the `u` key). Dismisses with the URL
     string, or None on Esc. Rejects anything that isn't http(s) in place, so a
-    `file://` never reaches the downloader."""
+    `file://` never reaches the downloader.
+
+    If the clipboard already holds a link when the prompt opens — which is the
+    normal case, since you copy a URL and THEN press `u` — it is offered as the
+    placeholder: shown dimmed, replaced the moment you type, and used only if
+    you press Enter on an empty box. It is never auto-submitted and never
+    leaves the machine.
+    """
+
+    def __init__(self, suggestion: str | None = None):
+        super().__init__()
+        # None = read the clipboard on mount; a value = use it (also lets tests
+        # exercise the flow without touching the real clipboard)
+        self._suggestion = suggestion
 
     def compose(self):
         with VerticalScroll(id="pick-box", classes="pick"):
@@ -191,17 +260,26 @@ class UrlPrompt(ModalScreen):
             yield Label("x", id="url-note")           # filled on mount
 
     def on_mount(self) -> None:
-        self._note("[dim]audio only · transcribed locally · max 2 h[/dim]")
-        self.query_one("#url-input", Input).focus()
+        if self._suggestion is None:
+            self._suggestion = clipboard_url()
+        inp = self.query_one("#url-input", Input)
+        if self._suggestion:
+            inp.placeholder = self._suggestion        # dim, replaced by typing
+            self._note(f"[#2dd4bf]◆[/] [dim]found this link on your clipboard[/dim]",
+                       keys="Enter fetches it · type replaces · Esc cancel")
+        else:
+            self._note("[dim]audio only · transcribed locally · max 2 h[/dim]")
+        inp.focus()
 
-    def _note(self, markup: str) -> None:
+    def _note(self, markup: str, keys: str = "Enter fetch · Esc cancel") -> None:
         self.query_one("#url-note", Label).update(
             f"[bold #2dd4bf]transcribe a web video[/]\n\n{markup}\n\n"
-            f"[dim]Enter fetch · Esc cancel[/dim]")
+            f"[dim]{keys}[/dim]")
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         from . import fetch
-        url = event.value.strip()
+        # empty box + a clipboard suggestion -> accept the suggestion (never auto)
+        url = event.value.strip() or (self._suggestion or "")
         if not fetch.is_url(url):
             # the same rule fetch.py enforces — stated here so the user sees WHY
             self._note("[#ff3b30]only http(s) links are supported[/]")
