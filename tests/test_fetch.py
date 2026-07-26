@@ -144,7 +144,10 @@ def test_fetch_reports_progress(monkeypatch, tmp_path):
     install_fake_ytdlp(monkeypatch, info=INFO, on_download=on_download)
     fetch.fetch_audio("https://youtu.be/abc", base_dir=tmp_path,
                       progress=lambda frac, status: calls.append((frac, status)))
-    assert (0.25, "downloading…") in calls
+    fracs = [f for f, _ in calls]
+    assert 0.25 in fracs                                  # 50 of 200 bytes
+    # the status carries human size, which is what the panel shows
+    assert any(s.startswith("downloading…") and "MB" in s for _, s in calls)
     assert calls[-1] == (1.0, "downloaded")
 
 

@@ -105,6 +105,34 @@ desk-transcribe memo.mp3 -m small           # bigger model = better, slower (bas
 
 `-m/--model` takes any model name or a local path (same values as `DESK_WHISPER_MODEL` below); `-l/--language` forces a language code instead of auto-detecting.
 
+### Transcribe a web video — YouTube and ~1800 other sites
+
+Turn a tutorial, talk or interview into text you can search and skim. desk pulls **only the audio track** (never the video) and runs it through the same local transcriber. Needs one extra: `pip install -e ".[web]"`.
+
+In the app, from the Record panel:
+
+- **`u`** — paste a video URL into the prompt.
+- **`i`** — the same picker you use for files also accepts a URL; paste one and it switches to a link card.
+
+Either way you get a live download bar, then the transcript, saved next to the audio under `~/.desk/transcripts/<timestamp>-<title>/`.
+
+From the terminal, `desk-transcribe` takes URLs wherever it takes files:
+
+```bash
+desk-transcribe "https://www.youtube.com/watch?v=..."     # -> audio.m4a + audio.md
+desk-transcribe "https://…" -l es -m small                # force Spanish, bigger model
+```
+
+How it behaves, and why:
+
+- **Audio only, no re-encode.** The site's native stream (m4a/webm/opus) goes straight to faster-whisper, which decodes it via PyAV — so **ffmpeg is not required** and nothing is transcoded.
+- **One video, never a playlist.** A playlist or channel link fetches a single video, not the whole list.
+- **http(s) only.** Other schemes (`file://`, `ftp://`) are refused — a link must be a link.
+- **A 2-hour cap**, checked *before* downloading, so a long livestream can't quietly fill the disk.
+- **Opt-in networking.** This extra is the only part of desk that reaches the network; without it installed, desk stays entirely offline and the URL keys say so.
+
+Please respect each site's terms of service and the rights of content owners — use this on material you're allowed to process.
+
 ### Offline / locked-down machines
 
 The model is fetched from Hugging Face on first use. Behind a **corporate TLS-inspecting proxy** you may hit `CERTIFICATE_VERIFY_FAILED` — trust the proxy's root CA (`setx SSL_CERT_FILE`/`REQUESTS_CA_BUNDLE`/`CURL_CA_BUNDLE` to a PEM) and the download works.

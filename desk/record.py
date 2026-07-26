@@ -205,6 +205,61 @@ def _meter(level: float, width: int = METER_WIDTH) -> str:
             f"[dim]{'░' * (width - filled)}[/dim]")
 
 
+FETCH_SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"      # braille spinner for the metadata-probe phase
+_FETCH_FILL = "#2dd4bf"           # teal: the download lane
+_FETCH_LEAD = "#7ff3e4"           # brighter leading cell, so the bar ARRIVES
+
+
+def _fetch_bar(frac: float, width: int = METER_WIDTH) -> str:
+    """Download progress drawn on the VU meter's exact geometry — the same 28
+    cells the eye already reads in this panel, so the bar needs no learning."""
+    filled = max(0, min(width, round((frac or 0.0) * width)))
+    out = ""
+    if filled > 1:
+        out += f"[{_FETCH_FILL}]{'▊' * (filled - 1)}[/]"
+    if filled >= 1:
+        out += f"[{_FETCH_LEAD}]▊[/]"
+    return out + f"[dim]{'░' * (width - filled)}[/dim]"
+
+
+def render_fetching(info: dict, phase: int = 0) -> str:
+    """The 'pulling a web video's audio' state. `info` carries what is known so
+    far: url, site, title, duration, frac (None while only probing) and status.
+    `phase` advances the spinner on the fast repaint lane."""
+    out = ["[bold #2dd4bf]RECORD[/]", ""]
+    site = info.get("site") or "web"
+    out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{site}[/dim]")
+    frac = info.get("frac")
+    if frac is None:                       # probing: metadata only, nothing pulled
+        spin = FETCH_SPIN[phase % len(FETCH_SPIN)]
+        out.append(f"[#2dd4bf]{spin}[/] [#ffd166]reading title & duration — "
+                   f"no download yet[/]")
+        out.append(f"[dim]{(info.get('url') or '')[:52]}[/dim]")
+    else:
+        if info.get("title"):
+            out.append(f"[#dbe4ee]{info['title'][:52]}[/]")
+        dur = _mmss(info["duration"]) if info.get("duration") else "?"
+        out.append(f"[dim]{dur} · audio only · no re-encode[/dim]")
+        out.append("")
+        out.append(f"  {_fetch_bar(frac)}  [#ffd166]{round(frac * 100):3d}%[/]")
+        out.append(f"  [dim]{info.get('status') or 'downloading…'}[/dim]")
+    out.append("")
+    out.append("[dim]esc cancels[/dim]")
+    out += ["", "[#ff8c42]▲[/] [dim]respect each site's terms and the rights of "
+            "content owners[/dim]"]
+    return "\n".join(out)
+
+
+def _web_suffix() -> str:
+    """Say so inline when the network extra isn't installed, instead of letting
+    the key look broken when pressed."""
+    try:
+        from . import fetch
+        return "" if fetch.AVAILABLE else "  [dim](needs desk\\[web])[/dim]"
+    except Exception:
+        return ""
+
+
 def _whisper_label() -> str:
     """Colour-coded device chip for the panel: green GPU / gold CPU, plus the
     model name. Reflects the actual device once a transcription has run."""
@@ -231,7 +286,10 @@ def render_tile(state: str, seconds: float = 0.0, level: float = 0.0) -> str:
 
 def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
                 last: str | None = None, auto_on: bool = True,
-                auto_min: int = AUTO_MIN_DEFAULT) -> str:
+                auto_min: int = AUTO_MIN_DEFAULT, fetch: dict | None = None,
+                phase: int = 0) -> str:
+    if state == "fetching":
+        return render_fetching(fetch or {}, phase)
     out = ["[bold #2dd4bf]RECORD[/]", ""]
     if not AVAILABLE:
         out += ["[dim]meeting recorder + local transcription[/dim]", "",
@@ -255,6 +313,7 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
         out += ["[dim]captures system audio + your mic, transcribes locally[/dim]", "",
                 "[#ffd166]space[/] start recording",
                 "[#ffd166]i[/] transcribe an existing file",
+                "[#ffd166]u[/] transcribe a web video" + _web_suffix(),
                 "[#ffd166]t[/] open transcripts folder"]
         if auto_on:
             out.append(f"[#ffd166]auto-stop[/] {auto_min} min   [#ffd166]a[/] on/off · "

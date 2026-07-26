@@ -85,7 +85,7 @@ class AudioPicker(ModalScreen):
 
     def compose(self):
         with VerticalScroll(id="pick-box", classes="pick"):
-            yield Input(placeholder="paste a path, or browse below (up/down, Enter)…",
+            yield Input(placeholder="paste a path or a video URL, or browse below…",
                         id="pick-path")
             yield Label("transcribe a file", id="pick-body")   # on_mount fills it
 
@@ -98,7 +98,33 @@ class AudioPicker(ModalScreen):
         self.idx = max(0, min(self.idx, len(self.entries) - 1))
         self._repaint()
 
+    def on_input_changed(self, event: Input.Changed) -> None:
+        """Typing/pasting a URL swaps the folder browser for a link card — the
+        browser is meaningless for a URL, and the swap is the signal that desk
+        understood what was pasted."""
+        self._repaint()
+
+    def _link_card(self, url: str) -> list[str]:
+        from . import fetch
+        host = url.split("/")[2] if url.count("/") >= 2 else url
+        lines = [f"[bold #2dd4bf]transcribe a web video[/]  [dim]{_fit(host, 30)}[/dim]",
+                 "", f"[#2dd4bf]◆[/] [#dbe4ee]{_fit(url, 46)}[/]", ""]
+        if fetch.AVAILABLE:
+            lines += ["[dim]Enter fetches the audio and transcribes it[/dim]",
+                      "[dim]audio only · transcribed locally · max 2 h[/dim]"]
+        else:
+            lines += ["[#ff8c42]not enabled[/] [dim]— pip install desk\\[web][/dim]"]
+        return lines + ["", "[dim]Esc cancel[/dim]"]
+
     def _repaint(self) -> None:
+        try:
+            typed = self.query_one("#pick-path", Input).value.strip()
+        except Exception:
+            typed = ""
+        from . import fetch
+        if fetch.is_url(typed):                      # a URL: show the link card
+            self.query_one("#pick-body", Label).update("\n".join(self._link_card(typed)))
+            return
         head = f"[bold #2dd4bf]transcribe a file[/]  [dim]{_fit(str(self.cwd), 42)}[/dim]"
         lines = [head, ""]
         lo = max(0, min(self.idx - _ROWS // 2, max(0, len(self.entries) - _ROWS)))
@@ -125,8 +151,14 @@ class AudioPicker(ModalScreen):
             self._repaint()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        from . import fetch
         text = event.value.strip()
-        if text:                                     # a typed/pasted path wins
+        if fetch.is_url(text):                       # a URL: hand it back as a str
+            if not fetch.AVAILABLE:
+                self.notify("web video needs: pip install desk[web]", severity="warning")
+                return
+            self.dismiss(text)
+        elif text:                                   # a typed/pasted path
             p = resolve_input(text, self.cwd)
             if p is None:
                 self.notify("no such file or folder", severity="error")
@@ -145,3 +177,36 @@ class AudioPicker(ModalScreen):
             self.dismiss(p)
         else:
             self.notify("not an audio file", severity="warning")
+
+
+class UrlPrompt(ModalScreen):
+    """A one-line prompt for a video URL (the `u` key). Dismisses with the URL
+    string, or None on Esc. Rejects anything that isn't http(s) in place, so a
+    `file://` never reaches the downloader."""
+
+    def compose(self):
+        with VerticalScroll(id="pick-box", classes="pick"):
+            yield Input(placeholder="https://…  (YouTube and ~1800 other sites)",
+                        id="url-input")
+            yield Label("x", id="url-note")           # filled on mount
+
+    def on_mount(self) -> None:
+        self._note("[dim]audio only · transcribed locally · max 2 h[/dim]")
+        self.query_one("#url-input", Input).focus()
+
+    def _note(self, markup: str) -> None:
+        self.query_one("#url-note", Label).update(
+            f"[bold #2dd4bf]transcribe a web video[/]\n\n{markup}\n\n"
+            f"[dim]Enter fetch · Esc cancel[/dim]")
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        from . import fetch
+        url = event.value.strip()
+        if not fetch.is_url(url):
+            # the same rule fetch.py enforces — stated here so the user sees WHY
+            self._note("[#ff3b30]only http(s) links are supported[/]")
+            return
+        if not fetch.AVAILABLE:
+            self._note("[#ff8c42]not enabled[/] [dim]— pip install desk\\[web][/dim]")
+            return
+        self.dismiss(url)
