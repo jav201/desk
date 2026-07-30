@@ -90,6 +90,7 @@ def test_render_uses_target_not_fixed_five():
 
 
 # ---- ember-field redesign ---------------------------------------------------
+import random
 import re
 
 
@@ -118,10 +119,131 @@ def test_hearth_field_drains_with_remaining():
 
 
 def test_hearth_evaporation_is_stable():
-    """Seeded shuffle → the dots lit at less time remaining are a subset of those
-    lit at more, so the fire only ever recedes; never flickers back."""
+    """The front is a deterministic function of `remaining_frac`, so the fire
+    only ever recedes as time runs down; it never flickers back up."""
     counts = [_hearth_dots(f / 100) for f in range(0, 101, 5)]
     assert counts == sorted(counts)
+
+
+# ---- ordered coverage: the ember is a BOUNDARY, not a scatter ---------------
+def _fire_cells(frac: float, phase: int = 0) -> int:
+    """Cells the renderer painted as FIRE — tone neither ash nor digit ink.
+
+    The oracle asks the renderer's own output what it painted rather than
+    re-deriving the geometry, so it cannot drift into agreeing with a broken
+    renderer by sharing its bug."""
+    n = 0
+    for ln in focus.hearth_lines(frac, "", phase=phase):
+        for m in re.finditer(r"\[([^\]/][^\]]*)\]([^\[]*)", ln):
+            if m.group(1) in (focus.EMBER, focus.BRIGHT):
+                continue
+            n += sum(1 for c in m.group(2) if c != " ")
+    return n
+
+
+def test_the_ember_reads_as_draining_all_the_way_down():
+    """THE POINT OF THE PANEL. A quantity scattered at random over a braille
+    field is invisible until it nears zero — 8 dots to a cell means the odds of
+    a cell going dark are (1-frac)**8. Encoded as a moving front instead, the
+    fire has to look different at 90 % and at 50 %, which is the whole reason
+    anyone watches it. Measured on painted CELLS, which is what an eye reads."""
+    got = [_fire_cells(f) for f in (0.9, 0.5, 0.1)]
+    assert got[0] > got[1] > got[2], f"not monotone: {got}"
+    assert got[0] / got[2] >= 3.0, f"range too flat: {got}"
+    assert got[0] - got[1] > 50, f"90 % and 50 % are indistinguishable: {got}"
+
+
+def test_the_old_shuffle_drain_would_fail_that_law():
+    """THE CONTROL, and the reason the law above is not decoration: it
+    re-implements the drain desk actually shipped and asserts the law can see
+    the defect it was written for. A law whose only evidence is that the new
+    code passes has never been shown capable of failing."""
+    def shuffled(frac, rows=focus.HEARTH_ROWS, cols=focus.HEARTH_COLS):
+        W, H = cols * 2, rows * 4
+        order = [(x, y) for y in range(H) for x in range(W)]
+        random.Random(focus.BED_SEED).shuffle(order)
+        lit = set(order[:round(frac * len(order))])
+        return sum(1 for cy in range(rows) for cx in range(cols)
+                   if any((cx * 2 + x, cy * 4 + y) in lit
+                          for y in range(4) for x in range(2)))
+    got = [shuffled(f) for f in (0.9, 0.5, 0.1)]
+    assert got[0] / got[2] < 3.0 or got[0] - got[1] <= 50, (
+        f"the shipped shuffle would PASS ({got}) — the law is blind")
+
+
+def test_ordered_at_every_breath_phase():
+    """A field that only reads correctly on one frame of its own animation is
+    not ordered — the user sees whichever frame they happen to look at."""
+    for p in range(4):
+        got = [_fire_cells(f, phase=p) for f in (0.9, 0.5, 0.1)]
+        assert got[0] > got[1] > got[2], f"phase {p}: {got}"
+
+
+def test_the_breath_moves_the_shape_and_cannot_move_the_datum():
+    """LIFE AND DATA ARE SEPARATE CHANNELS. The front's mean height is the
+    remaining fraction; its raggedness is the breath. Each column carries an
+    independent random phase, so across 60 of them the jitter averages out and
+    a phase rotation cannot edit the reading — the ambient cannot lie about the
+    time left.
+
+    Measured against the DATUM itself, not merely against the other phases: a
+    front that drifted the same way at every phase would satisfy a
+    phase-to-phase comparison while reading the wrong time all day."""
+    datum = (1.0 - 0.5) * 36                      # the height the fraction means
+    for p in range(8):
+        mean = sum(focus._flame_line(60, 36, 0.5, p)) / 60
+        assert abs(mean - datum) < focus.HEARTH_JIT / 4, (p, mean, datum)
+    shapes = {_strip("".join(focus.hearth_lines(0.5, "", phase=p)))
+              for p in range(4)}
+    assert len(shapes) == 4          # a breath that changes nothing is a timer
+
+
+def _ash_by_row(frac: float) -> list[int]:
+    """Cells painted as ash, per cell-row. Uncarved, so the clock's fixed
+    subtraction cannot be mistaken for a change in the smoke."""
+    out = []
+    for ln in focus.hearth_lines(frac, ""):
+        n = 0
+        for m in re.finditer(rf"\[{re.escape(focus.EMBER)}\]([^\[]*)", ln):
+            n += sum(1 for c in m.group(1) if c != " ")
+        out.append(n)
+    return out
+
+
+def test_the_spent_field_leaves_ash_that_thins_with_height():
+    """GROUND. What the fire has already eaten is not blank — it is smoke, dense
+    at the burn line and thinning upward. It carries NO datum; it is there
+    because a background wants surface, and deleting it (the obvious
+    'simplification') leaves a panel that is 70 % empty rows and reads dead.
+    The gradient is the point: a flat stipple would read as wallpaper."""
+    rows = _ash_by_row(0.1)                # front low, most of the panel spent
+    assert sum(rows) > 40, f"no ash above the front: {rows}"
+    near, far = rows[7], rows[0]           # just above the front vs the far top
+    assert near > far, f"smoke does not thin with height: {rows}"
+
+
+def test_the_carved_counter_never_flickers():
+    """The digits are the one thing on the panel that must be trusted at a
+    glance. The fire moves past them; they do not move. Compared on the digit
+    cells only — the field inside those rows is supposed to change."""
+    def digits(phase):
+        out = []
+        for ln in focus.hearth_lines(0.5, "12:34", phase=phase):
+            out += [m.group(1) for m in
+                    re.finditer(rf"\[{re.escape(focus.BRIGHT)}\]([^\[]*)", ln)]
+        return out
+    assert len({tuple(digits(p)) for p in range(4)}) == 1
+
+
+def test_the_ember_looks_different_at_calm_typical_and_extreme():
+    """Three states, three pictures. Two states that render alike are a dead
+    channel, and 'running out' is the one state that most has to have a face."""
+    seen = {}
+    for name, rem in (("calm", 1500), ("typical", 700), ("extreme", 45)):
+        key = _strip("\n".join(focus.hearth_lines(rem / focus.WORK_SECONDS,
+                                                  focus.mmss(rem))))
+        assert key not in seen, f"identical at {seen.get(key)} and {name}"
+        seen[key] = name
 
 
 def test_hearth_rows_are_width_exact():
