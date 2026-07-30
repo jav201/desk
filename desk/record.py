@@ -8,11 +8,17 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
+import re
 import threading
 import wave
 import json
 from datetime import datetime
 from pathlib import Path
+
+from rich.cells import cell_len
+from rich.markup import escape as esc
+
+from . import deck
 
 # Presence check only — do NOT import numpy/soundcard here. Importing soundcard
 # initializes the Windows WASAPI/COM audio stack, which sits in desk's startup
@@ -378,3 +384,132 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
             out += ["", "[dim]last transcript:[/dim]", preview]
     out += ["", "[#ff8c42]▲[/] [dim]recording may require participants' consent[/dim]"]
     return "\n".join(out)
+
+
+# ---- the card seat (the deck's M/L form) ------------------------------------
+# What the card does NOT carry is as declared as what it does: the transcript
+# preview `render_body` shows is 220 characters of what was said in a meeting,
+# and the deck sits on top of every other window. It is not one of this card's
+# fields and it is not folded into one.
+_TAG = re.compile(r"(?<!\\)\[/?[^\]]*\]")
+
+
+def _vis(markup: str) -> int:
+    """Cells the markup occupies once painted — see `focus._vis`."""
+    return cell_len(_TAG.sub("", markup).replace("\\[", "["))
+
+
+def _pick(cands, w: int) -> str:
+    for c in cands:
+        if _vis(c) <= w:
+            return c
+    return ""
+
+
+def _clip(text: str, n: int) -> str:
+    """Clip PLAIN text to `n` cells, before it is escaped — see `capture._clip`.
+    DEFAULT_MODEL is read from the environment and may be a whole directory
+    path, so it is neither trusted to be short nor to be free of markup."""
+    if n <= 0:
+        return ""
+    if cell_len(text) <= n:
+        return text
+    out = ""
+    for ch in text:
+        if cell_len(out + ch) > n - 1:
+            break
+        out += ch
+    return out + "…"
+
+
+def _card_state(state: str, seconds: float, level: float, fetch: dict, w: int) -> str:
+    if not AVAILABLE:
+        return _pick(["  [dim]● record — needs the desk\\[record] extra[/dim]",
+                      "  [dim]● record — needs desk\\[record][/dim]",
+                      "  [dim]● record[/dim]"], w)
+    if state == "fetching":
+        frac = (fetch or {}).get("frac")
+        pct = f"{round(frac * 100)}%" if frac is not None else "reading…"
+        return _pick([f"  [#2dd4bf]◆ fetching audio[/]  [#ffd166]{pct}[/]",
+                      f"  [#2dd4bf]◆[/] [#ffd166]{pct}[/]"], w)
+    return _pick(["  " + render_tile(state, seconds, level),
+                  render_tile(state, seconds, level),
+                  f"  [#ff3b30]● {_mmss(seconds)}[/]" if state == "recording"
+                  else "  [dim]●[/dim]"], w)
+
+
+def _front_frac(state: str, seconds: float, fetch: dict,
+                auto_on: bool, auto_min: int) -> float:
+    """What the intake rows under the VU are filling with. A download fills with
+    the bytes that landed; a recording fills with the session running out against
+    its own auto-stop. Neither is invented: both are a real quantity with a real
+    ceiling, and when there is no such quantity the field is simply empty."""
+    if state == "fetching":
+        return (fetch or {}).get("frac") or 0.0
+    if state == "recording" and auto_on and auto_min > 0:
+        return max(0.0, min(1.0, seconds / (auto_min * 60)))
+    return 0.0
+
+
+def _card_whisper(w: int) -> str:
+    """The device chip, WITHOUT probing for a GPU. `render_body` may call
+    `planned_device`, which imports ctranslate2 — that is affordable inside a
+    panel the user opened and not on the deck, which paints once a second from
+    startup. `active_device` is a plain read and says nothing until a
+    transcription has actually run, which is the honest thing to say."""
+    try:
+        from . import transcribe
+        model, dev = transcribe.DEFAULT_MODEL, transcribe.active_device()
+    except Exception:
+        return _pick(["  [dim]whisper: local[/dim]"], w)
+    chip = ("[#3fb950]GPU[/]" if dev == "cuda" else
+            "[#ffd166]CPU[/]" if dev else "[dim]local[/dim]")
+    return _pick([f"  [dim]whisper:[/dim] {chip} [dim]· {esc(_clip(model, 18))}[/dim]",
+                  f"  [dim]whisper:[/dim] {chip}", f"  {chip}"], w)
+
+
+def card_fields(state: str, seconds: float, level: float, w: int, h: int,
+                want: int, auto_on: bool = True, auto_min: int = AUTO_MIN_DEFAULT,
+                fetch: dict | None = None, phase: int = 0,
+                head: str = "[bold #2dd4bf]RECORD[/]"):
+    """[(declared field, [line, ...]), ...] — the first `want` fields of the
+    record card, in `deck.CARD_FIELDS` order."""
+    out = []
+    for idx, name in enumerate(deck.CARD_FIELDS["record"][:want]):
+        if name == "head":
+            out.append((name, [head]))
+        elif name == "state":
+            out.append((name, [_card_state(state, seconds, level, fetch, w)]))
+        elif name == "meter":
+            rows = deck.room(h, "record", idx, want)
+            mw = max(1, min(METER_WIDTH, w - 4))
+            lines = ["  " + _meter(level, mw)]
+            if rows >= 2:
+                # the intake front sits exactly under the VU, at the same width:
+                # two instruments in one block rather than two loose widths
+                lines += _intake_field(
+                    _front_frac(state, seconds, fetch, auto_on, auto_min), phase,
+                    cols=mw, rows=min(2, rows - 1))
+            if rows >= 4:
+                lines.append(_pick([f"  [dim]{_mmss(seconds)} captured[/dim]",
+                                    f"  [dim]{_mmss(seconds)}[/dim]"], w))
+            out.append((name, lines))
+        elif name == "auto":
+            out.append((name, [
+                _pick([f"  [#ffd166]auto-stop[/] {auto_min} min  [#ffd166]a[/] on/off",
+                       f"  [#ffd166]auto-stop[/] {auto_min} min",
+                       f"  [dim]stop {auto_min}m[/dim]"], w) if auto_on
+                else _pick(["  [dim]auto-stop: off[/dim]  [#ffd166]a[/] on/off",
+                            "  [dim]auto-stop: off[/dim]"], w)]))
+        else:
+            out.append((name, [_card_whisper(w)]))
+    return out
+
+
+def render_card(state: str, seconds: float, level: float, w: int, h: int,
+                want: int, auto_on: bool = True, auto_min: int = AUTO_MIN_DEFAULT,
+                fetch: dict | None = None, phase: int = 0,
+                head: str = "[bold #2dd4bf]RECORD[/]") -> str:
+    return "\n".join(l for _n, ls in card_fields(
+        state, seconds, level, w, h, want, auto_on, auto_min, fetch, phase, head)
+        for l in ls)
