@@ -41,8 +41,15 @@ _COLOR_HEX = {
 _MUTED = "#6b7787"          # Inbox / unknown project / drained bar
 _TEAL = "#2dd4bf"           # header + today rule
 _GOLD = "#ffd166"          # the now-task / doing chip
-_HIGH = "#ff8c42"          # high-priority chip
-_OVER = "#f43f5e"          # overdue
+# THE HUE RATION. Project hues NAME ("whose is this?"); severity hues JUDGE
+# ("how bad is this?"); no mark wears both. Severity gets exactly ONE reserved
+# hue and overdue keeps it — a date that has passed is the only thing desk
+# judges. High priority used to hold a second one (#ff8c42) and gave it up: it
+# is drawn as `!2`, a mark and a count, which is the GLYPH house it already
+# lived in, and the orange was the redundant half of that signal. It was also
+# 9 rgb units from taskboard's `orange` project colour, so an orange project's
+# bar and a priority chip were the same colour on the same row.
+_OVER = "#f43f5e"           # overdue — the ONE reserved severity hue
 _DIM = "#5b6675"           # horizon empty cells
 
 BODY_W = 60                 # target render width (flexible #stage; art is exact)
@@ -373,7 +380,7 @@ def render_body(data: dict | None, today: date | None = None, width: int = BODY_
         if doing_n:
             chips += [("▸" + str(doing_n) + " ", _GOLD)]
         if high_n:
-            chips += [("!" + str(high_n) + " ", _HIGH)]
+            chips += [("!" + str(high_n) + " ", None)]      # glyph + count, no hue
         soon = [t for t in m_active if t["due"]]
         if soon:
             nd = min(soon, key=lambda t: t["due"])
