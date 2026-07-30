@@ -17,6 +17,8 @@ from pathlib import Path
 
 from rich.markup import escape as esc
 
+from . import deck
+
 BOARD_PATH = Path.home() / ".taskboard" / "board.json"
 
 DEFAULT_PHASES = ("Backlog", "Doing", "Done")
@@ -262,7 +264,8 @@ def _fill(left: list, right: list, width: int, ch: str = "─", style: str = _DI
 
 
 def _banner(label: str, task: dict | None, title_style, projs: dict,
-            today: date, width: int, empty: str, beat: bool = False) -> str:
+            today: date, width: int, empty: str, beat: bool = False,
+            nmax: int = 14) -> str:
     """One hero row: coloured spine + label + (truncated) title · project, with
     the due chip right-aligned. The title is trimmed so project + chip always fit.
     When `beat`, the row gets a faint project-tinted background wash so the task
@@ -271,16 +274,31 @@ def _banner(label: str, task: dict | None, title_style, projs: dict,
         return _emit([("▐▐", _MUTED), ("  ", None), (label, "dim"),
                       ("  ", None), (empty, "dim")], width)
     nm, hx = _proj(task.get("project_id"), projs)
-    nm = nm[:14]
+    nm = nm[:nmax]
     chip = _due_chip(task.get("due"), today)
     rlen = (len(chip[0]) + 1) if chip else 0
-    fixed = 2 + 2 + len(label) + 2 + 3 + len(nm)      # spine+gap+label+gap+" · "+proj
-    avail = max(3, width - fixed - rlen)
+    base = 2 + 2 + len(label) + 2                     # spine + gap + label + gap
+    proj = 3 + len(nm)                                # " · " + project name
+    # A 26-cell card cannot carry all three of a title, a project and a due chip.
+    # Rather than let `_emit` trim whichever ran off the end — which is how the
+    # chip came out as "due in " with the number missing — the row gives things
+    # up in a declared order. The project goes first: its colour is already on
+    # the spine, so dropping the name loses the least.
+    avail = width - base - proj - rlen
+    if avail < 8:
+        proj = 0
+        avail = width - base - rlen
+    if avail < 8 and chip:
+        chip, rlen = None, 0
+        avail = width - base
+    avail = max(3, avail)
     title = task["title"]
     if len(title) > avail:
         title = title[: avail - 1] + "…"
     left = [("▐▐", hx), ("  ", None), (label, "dim"), ("  ", None),
-            (title, title_style), (" · ", "dim"), (nm, hx)]
+            (title, title_style)]
+    if proj:
+        left += [(" · ", "dim"), (nm, hx)]
     right = [(chip[0], chip[1])] if chip else []
     row = _fill(left, right, width, ch=" ")
     return f"[on {_dark(hx)}]{row}[/]" if beat else row
@@ -395,3 +413,152 @@ def render_body(data: dict | None, today: date | None = None, width: int = BODY_
         out.append("")
         out.append(_emit([(f"· {report['rescued']} task(s) rescued from a format change", "dim")], W))
     return "\n".join(out)
+
+
+# ---- the card seat (the deck's M/L form) ------------------------------------
+# Every line here is built from (text, style) segments and emitted through
+# `_emit`, which escapes each run and pads or trims it to the seat's width. That
+# is not a stylistic preference: a task title comes out of a file this app does
+# not own, so a title of `[red]boom[/red]` has to arrive on screen as those
+# fifteen characters and not as a colour instruction.
+def _card_horizon(active: list, projs: dict, today: date, w: int) -> list:
+    """The due horizon, sized to the seat: as many days as the width can draw at
+    two cells each. A 14-day horizon squeezed into nine days of room is a horizon
+    that lies about its own span, so the header says how many days it is."""
+    days = max(1, min(_HORIZON, (w - 8) // 2))
+    overdue = [t for t in active if t["due"] and t["due"] < today]
+    K = len(overdue)
+    right = [(" ", None), ("▲ ", _OVER), (f"{K} overdue", _OVER)] if K else []
+    rv = sum(len(t) for t, _ in right)
+    span = [("─ next ", "dim"), (str(days), "dim"), (" days ", "dim")]
+    left = [("DUE ", "bold")]
+    if 4 + 14 + rv <= w:
+        left += span
+    out = [_fill(left, right, w)]
+    hz = [("     ", None), ("▲ " if K else "  ", _OVER if K else None), ("│", _TEAL)]
+    for d in range(days):
+        day = today + timedelta(days=d)
+        due_here = [t for t in active if t["due"] == day]
+        if due_here:
+            best = min(due_here, key=lambda t: _PRIORITY_RANK[t["priority"]])
+            hz.append(("● ", _proj(best.get("project_id"), projs)[1]))
+        else:
+            hz.append(("· ", _DIM))
+    out.append(_emit(hz, w))
+    tick = [(" " * 8, None)]
+    for d in range(0, days, 2):
+        if 8 + (d // 2 + 1) * 4 <= w:            # a half-drawn date is not a date
+            tick.append(((today + timedelta(days=d)).strftime("%d") + "  ", "dim"))
+    out.append(_emit(tick, w))
+    return out
+
+
+def _card_ledger(tasks: list, phases: tuple, doing: list, projs: dict, data: dict,
+                 today: date, w: int, rows: int) -> list:
+    """The per-project bars, as many as the seat pays for. When there are more
+    projects than rows the last row SAYS SO — a ledger that silently stops at the
+    fourth project reads as a complete ledger with four projects in it."""
+    # the name column yields before the chips do: a project is also named by the
+    # colour of its spine, and `▲3d` is not recoverable from anything else here
+    nw = max(6, min(_NAMEW, w - 26))
+    bar = max(3, min(_BAR, w - nw - 14))
+    pids = [p.get("id") for p in data.get("projects", []) or [] if isinstance(p, dict)]
+    if any(t["project_id"] not in projs for t in tasks if not t["archived"]):
+        pids.append(None)
+    live = [pid for pid in pids
+            if any(not t["archived"] and t["project_id"] == pid for t in tasks)]
+    shown = live[:rows]
+    if len(live) > rows >= 2:
+        shown = live[:rows - 1]
+    out = []
+    for pid in shown:
+        mine = [t for t in tasks if not t["archived"] and t["project_id"] == pid]
+        nm, hx = _proj(pid, projs)
+        d_done = sum(1 for t in mine if t["phase"] == phases[-1] and phases[-1] != phases[0])
+        total = len(mine)
+        fill = round(d_done / total * bar) if total else 0
+        m_active = [t for t in mine if t["phase"] != phases[-1] or phases[-1] == phases[0]]
+        doing_n = sum(1 for t in mine if t in doing)
+        high_n = sum(1 for t in m_active if t["priority"] == "high")
+        c_doing = ("▸" + str(doing_n) + " ", _GOLD) if doing_n else None
+        c_high = ("!" + str(high_n) + " ", None) if high_n else None
+        soon = [t for t in m_active if t["due"]]
+        c_due = None
+        if soon:
+            nd = min(soon, key=lambda t: t["due"])
+            dd = (nd["due"] - today).days
+            c_due = (f"▲{-dd}d", _OVER) if dd < 0 else (f"d{dd}", "dim")
+        chips = [c for c in (c_doing, c_high, c_due) if c]
+        row = [("▊ ", hx), (nm[:nw].ljust(nw), None), (" ", None),
+               ("█" * fill, hx), ("░" * (bar - fill), _DIM),
+               ("  ", None), (f"{d_done}/{total}", "dim"), ("  ", None)]
+        lv = sum(len(t) for t, _ in row)
+        # A chip is dropped WHOLE and in a declared order, so a narrow seat never
+        # halves one. Priority goes first and the date goes last: `!1` is a
+        # standing property of the work, an overdue date is a fact about today.
+        for victim in (c_high, c_doing, c_due):
+            if lv + sum(len(t) for t, _ in chips) <= w:
+                break
+            if victim:
+                chips.remove(victim)
+        out.append(_emit(row + chips, w))
+    if len(live) > len(shown) and len(out) < rows:
+        out.append(_emit([(f"  · {len(live) - len(shown)} more project(s)", "dim")], w))
+    # the block never renders empty — an empty ledger looks like a broken one
+    return out or [_emit([("· no projects on the board", "dim")], w)]
+
+
+def card_fields(data: dict | None, w: int, h: int, want: int,
+                today: date | None = None, beat: bool = False,
+                head: str = "[bold #2dd4bf]BOARD[/]"):
+    """[(declared field, [line, ...]), ...] — the first `want` fields of the
+    board card, in `deck.CARD_FIELDS` order."""
+    today = today or date.today()
+    # `_emit` truncates by recursing on its own over-wide output, so a NEGATIVE
+    # width never converges — `t[:width - acc]` keeps handing it a shorter string
+    # that is still wider than the target. The seat cannot produce one, but the
+    # seat is not the only caller a renderer ever gets.
+    w = max(0, w)
+    if not data:
+        hint = ("install and run taskboard to fill this" if w >= 38
+                else "run taskboard to fill this" if w >= 27 else "run taskboard")
+        blank = {"now": [_emit([("no board at ~/.taskboard/board.json", "dim")], w),
+                         _emit([(hint, "dim")], w)],
+                 "horizon": ["", "", ""], "ledger": [""], "detail": [""]}
+        return [(n, [head] if n == "head" else blank[n])
+                for n in deck.CARD_FIELDS["board"][:want]]
+
+    tasks, phases, report = normalize(data)
+    projs = _projects(data)
+    todo, doing, done = _buckets(tasks, phases)
+    active = todo + doing
+    out = []
+    for idx, name in enumerate(deck.CARD_FIELDS["board"][:want]):
+        if name == "head":
+            out.append((name, [head]))
+        elif name == "now":
+            nmax = max(4, min(14, w // 3))
+            out.append((name, [
+                _banner("NOW", current_doing(data), "bold #ffd166", projs, today,
+                        w, empty="nothing in progress", beat=beat, nmax=nmax),
+                _banner("nxt", _next_up(todo), None, projs, today, w,
+                        empty="queue empty", nmax=nmax)]))
+        elif name == "horizon":
+            out.append((name, _card_horizon(active, projs, today, w)))
+        elif name == "ledger":
+            out.append((name, _card_ledger(
+                tasks, phases, doing, projs, data, today, w,
+                deck.room(h, "board", idx, want))))
+        else:
+            segs = ([(f"· {report['rescued']} task(s) rescued from a format change", "dim")]
+                    if report["rescued"] else
+                    [(f"· {len(active)} active · {len(done)} done", "dim")])
+            out.append((name, [_emit(segs, w)]))
+    return out
+
+
+def render_card(data: dict | None, w: int, h: int, want: int,
+                today: date | None = None, beat: bool = False,
+                head: str = "[bold #2dd4bf]BOARD[/]") -> str:
+    return "\n".join(l for _n, ls in card_fields(data, w, h, want, today, beat, head)
+                     for l in ls)

@@ -559,21 +559,49 @@ class Deck(App):
         n = max(0, w - len(head) - len(key) - 3)
         return f"[bold {ACCENT}]{head}[/] [dim]{key}[/dim] [#263041]{'─' * n}[/]"
 
-    def _card_text(self, card: str, cw: int, ch: int, tiles: dict) -> str:
-        """The card's body at its seat. Increment 1 gives every tier the glance
-        form — the head plus the one line `render_tile` already returns — so the
-        geometry can be wired and proven before the per-card S/M/L seats land."""
-        lines = [self._card_head(card, cw)]
-        if ch >= deck.GLANCE_ROWS:
-            lines.append(tiles[card])
-        return "\n".join(lines[:max(1, ch)])
+    def _card_text(self, card: str, cw: int, ch: int, tiles: dict,
+                   tname: str = deck.TIER_S) -> str:
+        """The card's body at its seat.
+
+        At S the card is the GLANCE form and nothing else. That is not a
+        shortcut: `deck.deck_want` returns `TIER_PREFIX["S"]` there, which is a
+        ROW budget and not a field count, and spending it as a field count asks
+        Focus for its four-row ember floor inside a two-row card. S has one
+        declared form and this is it.
+
+        At M and L each card seats its own declared fields, as many as the height
+        pays for, and the head is passed in so the one piece of chrome the four
+        cards share stays in one place."""
+        head = self._card_head(card, cw)
+        if tname == deck.TIER_S:
+            lines = [head]
+            if ch >= deck.GLANCE_ROWS:
+                lines.append(tiles[card])
+            return "\n".join(lines[:max(1, ch)])
+        want = deck.deck_want(card, ch, tname)
+        if card == "board":
+            return board.render_card(self.board_data, cw, ch, want,
+                                     beat=self._beat, head=head)
+        if card == "focus":
+            # the phase is the ember's ambient, and a card that never receives it
+            # is a still fire with a green test suite (tests/test_motion.py:88)
+            return focus.render_card(self.pomo, cw, ch, want, beat=self._beat,
+                                     phase=self._ticks, head=head)
+        if card == "capture":
+            return capture.render_card(capture.pick_prompt(self._prompt_i),
+                                       self._last_saved, cw, ch, want, head=head)
+        return record.render_card(self._rec_state, self._rec.seconds,
+                                  self._rec.level, cw, ch, want,
+                                  auto_on=self._auto_on, auto_min=self._auto_min,
+                                  fetch=self._fetch_info, phase=self._fast,
+                                  head=head)
 
     def _paint_deck(self, size=None) -> None:
         """Place and fill the four cards from the geometry seat."""
         size = size or self.size
         w = size.width or 80             # size is (0,0) before the first layout
         h = size.height or 24
-        _tname, seat, _shown, shed = seats(w, h, pinned=self._pinned())
+        tname, seat, _shown, shed = seats(w, h, pinned=self._pinned())
         self._shed = tuple(shed)
         tiles = self._tiles()
         for card, wid in CARD_ID.items():
@@ -586,7 +614,7 @@ class Deck(App):
             widget.styles.offset = (x, y)
             widget.styles.width = cw
             widget.styles.height = ch
-            widget.update(self._card_text(card, cw, ch, tiles))
+            widget.update(self._card_text(card, cw, ch, tiles, tname))
             widget.display = card in seat
             (widget.add_class if self.mode == card
              else widget.remove_class)("active-tile")

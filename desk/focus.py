@@ -10,9 +10,14 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
+
+from rich.cells import cell_len
+
+from . import deck
 
 WORK_SECONDS = 25 * 60
 POMO_SET = 5
@@ -207,7 +212,8 @@ def _clock_dotrows(timestr: str) -> list[str]:
 
 def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
                  cols: int = HEARTH_COLS, seed: int = BED_SEED,
-                 indent: int = 4, phase: int = 0) -> list[str]:
+                 indent: int = 4, phase: int = 0,
+                 rows: int = HEARTH_ROWS) -> list[str]:
     """The whole Focus panel as one draining braille fire with the clock carved
     out of it.
 
@@ -221,20 +227,32 @@ def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
     painted 270 cells at 90 % and 268 at 50 % — the draining was invisible until
     the last minute. `record.py:_intake_field` already had the right answer in
     this same repo: a front that moves. Rows all share one width; digit cells
-    carry ONLY digit dots, always at full BRIGHT, so the time never flickers."""
+    carry ONLY digit dots, always at full BRIGHT, so the time never flickers.
+
+    `rows` is how many cell-rows the seat allotted. The clock is 16 dot-rows —
+    four cell-rows — so it is carved only when four are there, and the carving
+    slides UP to stay inside a short field rather than running off its bottom. A
+    field with fewer than four rows RENOUNCES the ember whole: one row of the
+    bare ramp, because half a carved digit is not a smaller clock, it is a wrong
+    one."""
     remaining_frac = max(0.0, min(1.0, remaining_frac))
-    W, H = cols * 2, HEARTH_ROWS * 4
-    # carve the clock into the dot rows starting HEARTH_ABOVE cell-rows down
-    art = _clock_dotrows(timestr)
-    top = HEARTH_ABOVE * 4
-    digit_dots = {(x, top + y) for y in range(16)
-                  for x in range(min(W, len(art[y]))) if art[y][x] == "#"}
+    if rows < 4:
+        rows, timestr = 1, ""
+    W, H = cols * 2, rows * 4
+    # carve the clock into the dot rows, clamped so its 16 rows stay inside
+    if timestr:
+        art = _clock_dotrows(timestr)
+        top = min(HEARTH_ABOVE * 4, max(0, (rows - 4) * 4))
+        digit_dots = {(x, top + y) for y in range(16)
+                      for x in range(min(W, len(art[y]))) if art[y][x] == "#"}
+    else:
+        digit_dots = set()
     digit_cells = {(x // 2, y // 4) for (x, y) in digit_dots}
     front = _flame_line(W, H, remaining_frac, phase, seed)
     ash = _ash_grid(W, H)
     pad = " " * indent
     out = []
-    for cy in range(HEARTH_ROWS):
+    for cy in range(rows):
         cells = []                                 # (char, colour|None) per column
         for cx in range(cols):
             if (cx, cy) in digit_cells:
@@ -453,3 +471,97 @@ def render_body(pomo: Pomodoro, beat: bool = False, phase: int = 0) -> str:
     out.append("    [#ffd166]space[/] start/pause   [#ffd166]s[/] skip   [#ffd166]r[/] reset")
     out.append(f"    [#ffd166]+[/] / [#ffd166]-[/] pomodoros in the set  [dim]· now {pomo.target}[/dim]")
     return "\n".join(out)
+
+
+# ---- the card seat (the deck's M/L form) ------------------------------------
+# The panel above owns a whole window; a CARD owns a seat the deck hands it, and
+# the seat is often 26 cells wide. Nothing here truncates: a line that does not
+# fit is replaced by a shorter line that says less and says it whole, and a
+# field that does not fit is not drawn at all.
+_TAG = re.compile(r"(?<!\\)\[/?[^\]]*\]")
+
+
+def _vis(markup: str) -> int:
+    """Cells a markup string occupies once painted: tags removed, and an escaped
+    bracket counted as the ONE character it prints as. Measured with `cell_len`
+    rather than `len` because a braille cell and a CJK glyph are not both one
+    column, and a card that measures in characters overflows on the first one."""
+    return cell_len(_TAG.sub("", markup).replace("\\[", "["))
+
+
+def _pick(cands, w: int) -> str:
+    """The first candidate that fits `w`, or an empty line."""
+    for c in cands:
+        if _vis(c) <= w:
+            return c
+    return ""
+
+
+def _card_dots(pomo: Pomodoro, w: int, beat: bool = False) -> str:
+    """Set progress AND the clock in words. The carved clock is 30 cells wide and
+    a card is often 26, so the ember cannot be the only place the time is: this
+    row is what the seat always has room for, and it carries the run mark the
+    fire only implies."""
+    live = render_tile(pomo, beat)
+    state = "running" if pomo.running else ("done" if pomo.remaining == 0 else "paused")
+    cap = f"pomodoro {min(pomo.completed + 1, pomo.target)} of {pomo.target} · {state}"
+    # the last rung is UNTINTED on purpose: the temperature ramp belongs to the
+    # fire and to the strip tile, and a row that reached for `temp_hex` itself
+    # would be a third seat spending it (tests/test_hue_ration.py:73)
+    return _pick([f"  {live}  [dim]{cap}[/dim]", f"  {live}", live,
+                  mmss(pomo.remaining)], w)
+
+
+def _card_keys(w: int) -> str:
+    return _pick([
+        "  [#ffd166]space[/] start/pause  [#ffd166]s[/] skip  [#ffd166]r[/] reset",
+        "  [#ffd166]space[/] start/pause  [#ffd166]s[/] skip",
+        "  [#ffd166]space[/] start/pause",
+        "  [#ffd166]space[/]",
+    ], w)
+
+
+def _card_set(target: int, w: int) -> str:
+    return _pick([
+        f"  [#ffd166]+[/] / [#ffd166]-[/] pomodoros in the set  [dim]· now {target}[/dim]",
+        f"  [#ffd166]+[/] / [#ffd166]-[/] pomodoros  [dim]· now {target}[/dim]",
+        f"  [#ffd166]+[/] / [#ffd166]-[/] set  [dim]{target}[/dim]",
+        f"  [#ffd166]+[/][#ffd166]-[/] [dim]{target}[/dim]",
+    ], w)
+
+
+def card_fields(pomo: Pomodoro, w: int, h: int, want: int, beat: bool = False,
+                phase: int = 0, head: str = "[bold #2dd4bf]FOCUS[/]"):
+    """[(declared field, [line, ...]), ...] — the first `want` fields of the
+    focus card, in the order `deck.CARD_FIELDS` declares them.
+
+    Structured rather than joined so the prefix law and the per-field floors have
+    something to read. `render_card` is the same thing with the lines joined."""
+    out = []
+    for idx, name in enumerate(deck.CARD_FIELDS["focus"][:want]):
+        if name == "head":
+            out.append((name, [head]))
+        elif name == "ember":
+            rows = deck.room(h, "focus", idx, want)
+            cols = max(1, min(HEARTH_COLS, w))
+            indent = max(0, (w - cols) // 2)          # the hero sits centred
+            # the clock is carved only where all 30 of its cells are there;
+            # narrower, the fire burns bare and `_card_dots` keeps the time
+            ts = mmss(pomo.remaining) if cols >= HEARTH_COLS else ""
+            out.append((name, hearth_lines(
+                pomo.remaining / WORK_SECONDS, ts, beat=beat and pomo.running,
+                cols=cols, indent=indent,
+                phase=(phase % EMBER_PHASES) if pomo.running else 0, rows=rows)))
+        elif name == "dots":
+            out.append((name, [_card_dots(pomo, w, beat)]))
+        elif name == "keys":
+            out.append((name, [_card_keys(w)]))
+        else:
+            out.append((name, [_card_set(pomo.target, w)]))
+    return out
+
+
+def render_card(pomo: Pomodoro, w: int, h: int, want: int, beat: bool = False,
+                phase: int = 0, head: str = "[bold #2dd4bf]FOCUS[/]") -> str:
+    return "\n".join(l for _n, ls in card_fields(pomo, w, h, want, beat, phase, head)
+                     for l in ls)
