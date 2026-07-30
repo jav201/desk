@@ -1,0 +1,70 @@
+{
+  "project": "desk",
+  "language": "en",
+  "batch_id": "2026-07-30-batch-01",
+  "batch_objective": "Wire desk/deck.py (the S/M/L geometry seat) into the live app so the deck actually resizes: four cards laid out per plan(), a render_card seat per panel, desk.tcss updated.",
+  "current_phase": 5,
+  "phase_status": "approved",
+  "iterations_per_phase": {
+    "0": 0,
+    "1": 1,
+    "2": 1,
+    "3": 0,
+    "4": 0,
+    "5": 0,
+    "6": 0
+  },
+  "artifacts": {
+    "0": ".dev-flow/2026-07-30-batch-01/01-requirements.md",
+    "1": ".dev-flow/2026-07-30-batch-01/01b-design.md",
+    "2": ".dev-flow/2026-07-30-batch-01/02-review.md",
+    "plan": ".dev-flow/2026-07-30-batch-01/PLAN.md"
+  },
+  "standing_authorization": {
+    "asked": true,
+    "date": "2026-07-30",
+    "autonomy": "Self-approve Phases 1-4, report once at the end. Stop early ONLY on a standing-law conflict with no lawful route.",
+    "merge": "N/A - no PR. Commit to main per increment; NEVER push (operator pushes).",
+    "scope_addition": "README.md must match the shipped deck; counts inside the lifted file cap."
+  },
+  "decisions_log": [
+    {
+      "phase": 0,
+      "date": "2026-07-30",
+      "decision": "scaffolded",
+      "notes": "state.json created by hand (no /dev-flow-init run); .dev-flow/ already held BACKLOG.md only."
+    },
+    {
+      "phase": 0,
+      "date": "2026-07-30",
+      "decision": "approved",
+      "notes": "D1 Option B confirmed by operator: repurpose the four #tile-* Statics as the cards. All six consequences approved."
+    },
+    {
+      "phase": 1,
+      "date": "2026-07-30",
+      "decision": "iterate",
+      "notes": "Self-approved after folding 14 blockers from the 3-agent Phase-2 review. Biggest: at tier S deck_want returns a ROW budget (2), not a field count - the spec was unsatisfiable there."
+    },
+    {
+      "phase": 2,
+      "date": "2026-07-30",
+      "decision": "approved",
+      "notes": "Dispositions in 02-review.md. 4 findings deliberately NOT actioned (pre-existing record.py markup HIGH, board.json trust boundary, quadratic ledger, ledger visibility) - carried to backlog instead of scope-creeping."
+    },
+    {
+      "phase": 3,
+      "date": "2026-07-30",
+      "decision": "approved",
+      "notes": "3 increments: c239e5e geometry, 95a691d card seats, 4ef3c91 README. 10 files, within the lifted cap."
+    },
+    {
+      "phase": 4,
+      "date": "2026-07-30",
+      "decision": "approved",
+      "notes": "280 passed. Mutation batteries: 4 mutations vs the wiring tests, 2 vs the card tests, all RED, all restores hash-verified. One mutation was initially MIS-TARGETED and passed - re-run correctly it reddens."
+    }
+  ],
+  "obsidian_synced": false,
+  "created_at": "2026-07-30T14:10:00"
+}
