@@ -290,12 +290,23 @@ def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
 # typed string. And it never raises — `Pomodoro.load` already sets that rule for
 # this module, and a timer that dies because its log could not be written would
 # be a worse bug than the missing log.
+JOURNAL_ERROR: str | None = None    # why the last append was lost, if it was
+
+
 def append_journal(outcome: str, seconds: int, started_at: str | None = None,
-                   path: Path | None = None) -> dict:
-    """Append one interval to the journal and return the record written.
+                   path: Path | None = None) -> dict | None:
+    """Append one interval to the journal. Returns the record, or None if the
+    write was lost.
 
     Best-effort by design: a full disk, a read-only home or a stray directory
-    where the file should be all end in a lost line and nothing else."""
+    where the file should be all end in a lost line and nothing else.
+
+    BUT NOT SILENT. Swallowing the error and returning as if written left the
+    close screen free to say "the journal opens today" — a confident, specific
+    and FALSE statement about the day — while every interval was quietly going
+    nowhere. Silent data loss that presents as a clean empty state is worse than
+    a visible error, so the reason is kept and the close prints it."""
+    global JOURNAL_ERROR
     rec = {"started_at": started_at,
            "ended_at": datetime.now().isoformat(timespec="seconds"),
            "seconds": int(seconds),
@@ -305,8 +316,10 @@ def append_journal(outcome: str, seconds: int, started_at: str | None = None,
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(rec) + "\n")
-    except Exception:
-        pass
+    except Exception as exc:
+        JOURNAL_ERROR = f"{type(exc).__name__}: {exc}"
+        return None
+    JOURNAL_ERROR = None
     return rec
 
 
@@ -376,7 +389,13 @@ class Pomodoro:
         it would make the close flatter."""
         self.running = False
         self.completed = min(self.target, self.completed + 1)
-        append_journal("skipped", WORK_SECONDS - self.remaining, self._started)
+        spent = WORK_SECONDS - self.remaining
+        if spent:
+            # A skip on an untouched timer is not a fact about the day, and `s`
+            # has no repeat guard — holding it would append an unbounded run of
+            # zero-second rows to an append-only file with no way to clear it,
+            # inflating the very figure the close exists to report.
+            append_journal("skipped", spent, self._started)
         self._started = None
         self.remaining = WORK_SECONDS
 

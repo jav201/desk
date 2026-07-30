@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+
+import pytest
 from datetime import date, datetime, timedelta
 
 from desk import close, focus
@@ -73,6 +75,69 @@ def test_a_corrupt_line_costs_that_line_and_nothing_else(tmp_path):
 
 def test_a_missing_journal_is_an_empty_day_not_an_error(tmp_path):
     assert close.read_journal(tmp_path / "nope.jsonl") == []
+
+
+# A line that is PERFECTLY GOOD JSON with a bad `seconds`. This is the family
+# the first version of this screen let through: the reader only checked that the
+# line was a dict with a parseable `ended_at`, so each of these sailed past it
+# and detonated later in the arithmetic — and because the journal is append-only
+# with no repair path, one such line made `d` crash the app FOREVER.
+POISON = ['{"ended_at": "2026-07-30T09:00:00", "seconds": "1500"}',   # str
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": null}',      # None
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": [1]}',       # list
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": 1e999}',     # inf
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": NaN}',       # NaN
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": -600}',      # negative
+          '{"ended_at": "2026-07-30T09:00:00", "seconds": 99999999}']  # absurd
+
+
+@pytest.mark.parametrize("bad", POISON)
+def test_a_wellformed_line_with_a_hostile_value_cannot_reach_the_arithmetic(
+        bad, tmp_path):
+    """THE TEST THAT WAS MISSING, and the reason the earlier one was decoration:
+    it only ever fed corruption that json.loads itself rejects, and it asserted
+    on `stats()` rather than on the screen. Every row here parses cleanly as
+    JSON. The assertion is on `render_body`, because that is the surface that
+    crashed — through `d`, once a second, unrecoverably."""
+    p = tmp_path / "j.jsonl"
+    p.write_text(json.dumps(_rec(9)) + "\n" + bad + "\n"
+                 + json.dumps(_rec(11)) + "\n", encoding="utf-8")
+    rows = close.read_journal(p)
+    assert len(rows) == 2, f"{bad} was let through"
+    body = _strip(close.render_body(rows, TODAY))     # must not raise
+    assert "50 minutes" in body                       # the two GOOD rows, intact
+
+
+def test_the_journal_is_never_trusted_to_be_markup(tmp_path):
+    """The values come off disk and the screen is Textual markup. Nothing
+    journal-derived reaches `update()` today — every printed figure is an int or
+    a formatted hour — and this pins that property, because `render_body` is
+    exactly where a future 'last note' or 'hot project' line would be added."""
+    p = tmp_path / "j.jsonl"
+    rec = dict(_rec(9))
+    rec["outcome"] = "[red]completed[/red]"
+    p.write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    body = close.render_body(close.read_journal(p), TODAY)
+    assert "[red]" not in body
+
+
+def test_an_unwritable_journal_says_so_instead_of_saying_the_day_is_empty(
+        tmp_path, monkeypatch):
+    """A day with nothing in it and a day whose journal COULD NOT BE WRITTEN
+    look identical from here, and only one of them is the operator's day.
+    Reporting silent data loss as a clean empty state is the worse of the two
+    failures — the screen would be stating a confident falsehood."""
+    blocked = tmp_path / "a-file"
+    blocked.write_text("not a directory", encoding="utf-8")
+    monkeypatch.setattr(focus, "JOURNAL_PATH", blocked / "j.jsonl")
+    monkeypatch.setattr(focus, "JOURNAL_ERROR", None)
+    p = focus.Pomodoro(remaining=1)
+    p.toggle()
+    assert p.tick() is True                       # the timer still survives
+    assert focus.JOURNAL_ERROR                    # ...and the loss was recorded
+    body = _strip(close.render_body([], TODAY))
+    assert "could not be written" in body
+    assert "opens today" not in body
 
 
 # ---- the hero ---------------------------------------------------------------
