@@ -265,7 +265,7 @@ class UrlPrompt(ModalScreen):
         inp = self.query_one("#url-input", Input)
         if self._suggestion:
             inp.placeholder = self._suggestion        # dim, replaced by typing
-            self._note(f"[#2dd4bf]◆[/] [dim]found this link on your clipboard[/dim]",
+            self._note(f"[#2dd4bf]◆[/] [dim]found this link on the clipboard[/dim]",
                        keys="Enter fetches it · type replaces · Esc cancel")
         else:
             self._note("[dim]audio only · transcribed locally · max 2 h[/dim]")
