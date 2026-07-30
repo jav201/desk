@@ -1,6 +1,6 @@
 # Quick Spec — desk: the approved reimagining, ported into the real app
 
-- **Status:** open
+- **Status:** CLOSED 2026-07-30 (increments 1-3, 4a, 5, 6, 7 shipped; 4b/4c gated)
 - **Branch:** `redesign-deck`
 - **Base ref:** `main` @ 3fc3880
 - **Flow revision:** fast-dev-flow as loaded 2026-07-30 (local; remote manifest
