@@ -57,6 +57,26 @@ dropped silently.
   `tests/test_hints.py:48` encodes the current behaviour, so it was surfaced and
   not silently changed. Decide which is the truth, then fix the other.
 
+### From the security review (2 LOW left open, deliberately)
+- **The close re-reads and re-parses the whole journal once a second** while the
+  panel is open (`close.py:read_journal`, no cache; `app.py:_paint` runs every
+  tick). Not a problem at ~650 KB per decade, but the file has no rotation, no
+  pruning and no size cap, and it is the one structure in the batch with no
+  ceiling on it. Fix: cache on mtime, or have `Deck` hold the parsed rows and
+  pass them to `render_body(rows=...)` — the parameter already exists.
+- **A torn write silently consumes the NEXT good record.** `append_journal`
+  writes the newline as a suffix, so a crash mid-write leaves a fragment that
+  the following append concatenates onto. Costs one valid record in addition to
+  the torn one; `read_journal` skips the result cleanly, so it is data loss and
+  never a crash. Fix if wanted: write `"\n" + payload + "\n"` so a torn line
+  self-terminates.
+- **No way to clear or prune the journal from inside desk.** Called out as the
+  operator's only escape hatch if the file is ever damaged by something other
+  than desk, and as a privacy affordance: the journal is a permanent
+  second-resolution record of when Javier works and how often he abandons an
+  interval. Fine on a personal machine; worth knowing before desk is demoed on a
+  shared or client-facing one.
+
 ### Deferred by design (came out of this batch)
 - **The fire's hot end is 45 rgb units from the overdue red** (`#ff4b34` at 86 %
   spent vs `#f43f5e`). They never share a panel and the ramp's seats are now
