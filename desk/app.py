@@ -26,12 +26,13 @@ from textual.widgets import Input, Static
 
 from . import board
 from . import capture
+from . import close
 from . import focus
 from . import hints
 from . import record
 from .picker import AudioPicker, UrlPrompt
 
-PANELS = ("board", "focus", "capture", "record")
+PANELS = ("board", "focus", "capture", "record", "close")
 BOARD_POLL_TICKS = 5          # auto-reload board.json every ~5s; F5 forces now
 
 # palette (kept here until the shared `desk` core is extracted in a later pass)
@@ -57,6 +58,7 @@ class Deck(App):
         Binding("c", "expand('capture')", "Capture", priority=True),
         Binding("escape", "collapse", "Strip", priority=True),
         Binding("m", "expand('record')", "Record", priority=True),
+        Binding("d", "expand('close')", "Close the day", priority=True),
         ("o", "open_board", "Open board"),
         ("t", "open_transcripts", "Transcripts"),
         Binding("i", "transcribe_file", "Transcribe file", show=False),
@@ -456,6 +458,8 @@ class Deck(App):
         }
 
     def _body(self, which: str) -> str:
+        if which == "close":
+            return close.render_body()
         if which == "focus":
             return focus.render_body(self.pomo, beat=self._beat)
         if which == "board":
