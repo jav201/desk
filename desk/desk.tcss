@@ -4,31 +4,40 @@ Screen {
     background: #0d1117;
 }
 
-/* the always-visible compact strip */
-#strip {
+/* the ribbon — one of the two chrome rows `deck.CHROME` accounts for */
+#ribbon {
     dock: top;
-    height: 3;
+    height: 1;
     background: #11161d;
-    border: round #263041;
-    padding: 0 1;
 }
-.tile {
+#ribbon-cards {
     width: 1fr;
-    height: 1fr;
-    content-align: left middle;
-    color: #c9d4e0;
-}
-#tile-focus {
-    content-align: center middle;
+    color: #6b7787;
 }
 #clock {
     width: auto;
     color: #6b7787;
     content-align: right middle;
 }
+
+/* THE DECK. Every card's size and position comes from `app.seats`, which reads
+   `desk/deck.py`. Nothing here may state a card width, height or offset: a
+   stylesheet that also had an opinion would make the geometry seat advisory,
+   and every test that asserts a card's region against it vacuous. */
+#strip {
+    height: 1fr;
+}
+.tile {
+    position: absolute;
+    color: #c9d4e0;
+    /* a line wider than the card must be CUT, not wrapped: a wrapped line
+       pushes the fields below it out of a card whose height is fixed, so the
+       card would silently lose its last row to an over-long task title. */
+    text-wrap: nowrap;
+    overflow: hidden;
+}
 .active-tile {
     background: #1b2735;
-    text-style: bold;
 }
 
 /* the expandable stage */

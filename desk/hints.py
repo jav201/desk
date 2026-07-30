@@ -22,6 +22,11 @@ KEY = "#ffd166"          # key cap colour (desk's gold accent)
 _SEP_VIS = 3             # visible width of the " · " separator
 _ELL_VIS = 2             # visible width of the " …" truncation marker
 
+# What the bar says when the deck could not seat every card. The names are
+# spelled out: a count says something was lost, a name says WHAT was lost, and
+# only the second is actionable.
+SHED_MARK = "hidden"
+
 # (key, label, priority) in DISPLAY order. priority 0 == never dropped.
 _PANEL_KEYS = ("b/f/c/m", "panels", 2)
 _QUIT = ("q", "quit", 0)
@@ -83,17 +88,64 @@ def fit(mode: str, width: int) -> tuple[list, bool]:
     return sel, ell
 
 
-def render(mode: str, width: int) -> str:
+_SHED_KEY = {"board": "b", "focus": "f", "capture": "c", "record": "m"}
+
+
+def shed_text(shed, width: int) -> str:
+    """The shed announcement, plain, guaranteed to fit `width`.
+
+    A shed card is never dropped, so this is priced BEFORE `fit` runs and
+    subtracted from its budget — `fit` sheds essentials from the front once the
+    droppable ones are gone (see the fallback below), which at 30x8 (two cards
+    shed, 28 cells) ate the announcement itself. The thing that must survive
+    cannot be in the queue that gets shed.
+
+    It degrades rather than truncating: full names, then the card keys, then a
+    count. Every rung still says WHAT was lost except the last, which at least
+    says how much."""
+    if not shed:
+        return ""
+    for body in (" ".join(shed),
+                 " ".join(_SHED_KEY.get(c, c[0]) for c in shed),
+                 str(len(shed))):
+        out = f"{SHED_MARK} {body} "
+        if len(out) <= width:
+            return out
+    return ""
+
+
+def _essential_width(mode: str) -> int:
+    """What the keys that are never dropped cost. The shed announcement may
+    only spend what is left over — `fit` keeps its last essential key even when
+    it no longer fits (see the fallback in `fit`), so a lead that took their
+    room would not squeeze them out, it would overflow the one-row dock. At 30x8
+    the two shed names and `esc strip · q quit` genuinely do not both fit; the
+    way out wins and the announcement drops a rung.
+
+    The ellipsis counts. Reserving the essentials without it is what let the
+    strip bar reach 30 cells inside a 28-cell dock: the lead fitted, `fit` then
+    kept its last essential AND the truncation marker, and together they were
+    two cells wider than the room they had been left."""
+    return _total([i for i in hints_for(mode) if i[2] == 0], True)
+
+
+def render(mode: str, width: int, shed=()) -> str:
     """The hint bar as Textual markup, guaranteed to fit `width`."""
-    sel, ell = fit(mode, max(0, width))
+    width = max(0, width)
+    lead = shed_text(shed, max(0, width - _essential_width(mode)))
+    sel, ell = fit(mode, width - len(lead))
     parts = [f"[{KEY}]{k}[/] [dim]{label}[/dim]" for k, label, _ in sel]
     out = " [dim]·[/dim] ".join(parts)
     if ell:
         out = (out + " [dim]…[/dim]") if out else "[dim]…[/dim]"
+    if lead:
+        out = f"[dim]{lead}[/dim]" + out
     return out
 
 
-def visible_width(mode: str, width: int) -> int:
+def visible_width(mode: str, width: int, shed=()) -> int:
     """Visible (tag-free) width of what `render` would produce — for tests."""
-    sel, ell = fit(mode, max(0, width))
-    return _total(sel, ell)
+    width = max(0, width)
+    lead = shed_text(shed, max(0, width - _essential_width(mode)))
+    sel, ell = fit(mode, width - len(lead))
+    return len(lead) + _total(sel, ell)
