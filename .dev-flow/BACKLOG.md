@@ -4,8 +4,8 @@ The single cross-batch queue shared by `/dev-flow` and `/fast-dev-flow`. One
 file: shipped items get marked here, open items carry forward, nothing is
 dropped silently.
 
-- **Base ref:** `main` @ 3fc3880 (before this batch)
-- **Last refresh:** 2026-07-30 — batch "the approved reimagining" (branch `redesign-deck`, NOT pushed)
+- **Base ref:** `main` @ 4ef3c91 (after the wiring batch; NOT pushed — Javier pushes)
+- **Last refresh:** 2026-07-30 — batch `2026-07-30-batch-01` "wiring the deck" (dev-flow, on `main`)
 
 ## Shipped
 
@@ -28,22 +28,44 @@ dropped silently.
 | The day-close (`d`), reading the real journal | reimagining | 3aeb38b |
 | Ember ambient in the glyph channel, 4000 ms, level basic | reimagining | b4776fb |
 | Stale rev1 frames deleted; README matches the code | reimagining | THIS commit |
+| **THE GATE — the deck is wired; `deck.py` governs the live layout** | batch-01 | c239e5e |
+| **Per-panel `render_card` S/M/L seats + `hearth_lines(rows=…)`** | batch-01 | 95a691d |
+| **A shed card is named (key bar) + marked (ribbon)** — AC-4.1 now fully met | batch-01 | c239e5e |
+| README describes the resizing deck, not the old strip | batch-01 | 4ef3c91 |
 
 ## Open
 
-### THE GATE — the deck shell is built but not wired (reimagining batch)
-- **`desk/deck.py` is not imported by anything yet.** The geometry, the S/M/L
-  ladder and the drop-order tables are shipped and tested; the app still runs
-  the original strip + single-stage shell. Wiring it means replacing `compose`,
-  `_paint` and `desk.tcss` and giving every panel a `render_card(w, h, want)`
-  seat — 8+ files against a 5-file cap, and it changes what the operator sees on
-  every launch. **It needs an explicit go, and probably its own /dev-flow
-  batch.** Split as planned: (4b) the shell renders four cards from `deck.plan`,
-  each body still the existing renderer; (4c) the per-module card seats honouring
-  `want` and the floors.
-- **The shed card must be NAMED in the key bar.** At 40x12 the deck sheds
-  `capture`; `plan` returns it, nothing prints it yet. AC-4.1 is half-met — the
-  shedding is right, the announcement is missing. Belongs with 4b.
+### From the wiring batch (`2026-07-30-batch-01`)
+- **HIGH · `record.py` renders two unescaped external strings.** `:293` is a web
+  video's title — network-sourced, attacker-controlled — and `:377-378` is the
+  transcript preview. Under Textual's parser an injected `[@click=app.quit]`
+  becomes a **live action span** (verified); under rich it raises `MarkupError`.
+  Pre-existing on `main`, NOT introduced by the wiring, and the card seats do
+  not widen it (`CARD_FIELDS["record"]` excludes both, and a test pins that).
+  Fix: wrap both in `esc()`.
+- **A hostile `board.json` title still breaks the row contract at the boundary.**
+  Embedded newlines survive `normalize` (`board.py:119-123`) and `_emit` measures
+  with `len()` not `cell_len`, so a CJK title overflows. Mitigated *defensively*
+  in the cards (lines clamped, `overflow: hidden`); the boundary fix — strip
+  control characters on load, measure in cells — is still open.
+- **`board.py:382` is quadratic** — `t in doing` is list membership over dicts,
+  43 ms at 2 000 tasks, on the 1 s repaint lane. One line: use an id set.
+- **The board ledger is now permanently visible at L.** Client project names sit
+  on screen for any screen share or demo recording. A design consequence of the
+  approved proposal, not a defect — but worth a redaction key (~3 lines in
+  `board.py:389`) before desk is shown on a client call.
+- **Ad-hoc probe scripts bypass `tests/conftest.py`.** Its autouse fixture
+  redirects every live-state path, but only under pytest. Driving `Deck()` from a
+  throwaway `python -` script writes the operator's real `~/.desk/state.json`;
+  it happened during this batch. Content came out byte-identical because the
+  timer was idle — luck, not design. Worth a tiny `desk.testing.isolate()` helper
+  so a probe cannot forget.
+- **The carved clock is renounced below 30 cells.** At 86x24 the focus card is 26
+  wide (`deck.CARD_MIN`) and the clock needs 30, so the ember burns bare and the
+  dots row carries `▸ 12:34`. Correct per "renounce whole", but it means the
+  three-column deck never shows the carved clock. Revisit if 3-col is common.
+- **`record`'s idle meter holds two blank intake rows** so `auto`/`whisper` do
+  not jump when recording starts. Constant geometry over dense idle — arguable.
 
 ### Decisions waiting on the operator
 - **Is `orange` dropped from the project palette?** Proposal §2.1 said yes. I did
