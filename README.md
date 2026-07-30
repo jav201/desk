@@ -15,7 +15,8 @@ A frameless, always-on-top **widget deck** for the terminal — one window, a co
 
 Panels:
 - **Board** — mission control for your work, read live from the [taskboard](https://github.com/jav201/taskboard) app: the task you're on *now*, what's next up, a 14-day due horizon (overdue massed left of the today-rule, one coloured dot per due date), and a per-project progress ledger.
-- **Focus** — a pomodoro whose clock is a high-res braille dot-matrix, sitting over an "ember field" of 720 braille dots whose lit mass drains in step with the time remaining.
+- **Focus** — a pomodoro whose clock is a high-res braille dot-matrix carved *out of* an ember field: a fire whose burn line falls as the interval runs down, leaving ash above it. The line's height is the time left, and its ragged edge breathes.
+- **Close** (`d`) — the day's closing entry: twenty-four hours as one braille field, each hour a column as tall as the minutes spent in it, plus the day's completions, skips, hot hour and streak. Every figure is read from the journal; a day with nothing in it says so and prints no number.
 - **Capture** — a rotating prompt; press enter and the line lands in your Obsidian daily note (or a local file when the vault isn't around).
 - **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install -e ".[record]"`).
 
@@ -51,6 +52,7 @@ desk
 | `f` | Focus panel |
 | `c` | Capture panel |
 | `m` | Record panel |
+| `d` | Close the day |
 | `esc` | collapse to the strip |
 | `space` | primary action of the panel — pomodoro start/pause (Focus) · start/stop recording (Record) |
 | `s` / `r` | pomodoro skip / reset |
@@ -67,7 +69,7 @@ desk
 ## Data & config
 
 - **Board** reads `~/.taskboard/board.json` (written by taskboard) read-only, auto-refreshing every ~5s; `F5` forces an instant reload. No taskboard installed? The Board panel simply shows "no board loaded". Reading is **drift-tolerant**: both the current `phase` schema and the older `status` one are understood, and a task whose format has changed is repaired rather than dropped, so a taskboard upgrade can never make your work vanish from the panel.
-- **Focus** persists the pomodoro to `~/.desk/state.json`, so the timer survives a restart.
+- **Focus** persists the live pomodoro to `~/.desk/state.json`, so the timer survives a restart, and appends every interval that ENDS to `~/.desk/pomodoros.jsonl` — one JSON object carrying start, end, seconds and outcome (`completed` / `skipped`). Append-only: nothing is ever rewritten or removed, and a write that fails costs the line and never the timer. It records durations and outcomes only — no note text, no paths, no task names. `reset` writes nothing, because it is the user declaring the set didn't happen. The journal is what the `d` close reads; before it existed, `state.json` carried no timestamp of any kind and yesterday was unrecoverable.
 - **Capture** appends `- YYYY-MM-DD HH:MM  <text>` under a `## Captures` heading in `<vault>/Daily/YYYY-MM-DD.md`. Point it at your vault in `~/.desk/config.json`:
 
   ```json
@@ -92,7 +94,7 @@ pip install -e ".[record]"     # from the desk folder; adds soundcard + faster-w
 Transcripts are saved under `~/.desk/transcripts/<timestamp>/` (`audio.wav` + `transcript.md`). Press **`t`** in desk to open that folder in your file manager.
 
 - **`m`** opens the Record panel, **`space`** starts/stops. On stop, a local Whisper model transcribes the audio (downloads once, ~150 MB) and saves it as markdown — the UI never freezes (runs in a background worker).
-- Captures **system audio + your mic** (so it hears everyone on the call), mixed to 16 kHz mono.
+- Captures **system audio + the mic** (so it hears everyone on the call), mixed to 16 kHz mono.
 - **Auto-stop** — so an unattended meeting still gets saved: a countdown auto-stops + transcribes at zero. **`a`** toggles it, **`+`/`-`** adjust it ±5 min (even mid-recording). Default 60 min, on.
 - Saved under `~/.desk/transcripts/<timestamp>/` (`transcript.md` + `audio.wav`); auto-stop settings persist in `~/.desk/record.json`.
 - Without the extra installed, the panel simply says "install desk[record] to enable".

@@ -11,7 +11,7 @@ import re
 
 from desk import hints
 
-MODES = ("strip", "board", "focus", "capture", "record")
+MODES = ("strip", "board", "focus", "capture", "record", "close")
 WIDTHS = range(30, 121)
 
 
