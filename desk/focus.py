@@ -10,12 +10,14 @@ from __future__ import annotations
 import json
 import random
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 
 WORK_SECONDS = 25 * 60
 POMO_SET = 5
 POMO_MAX = 12
 STATE_PATH = Path.home() / ".desk" / "state.json"
+JOURNAL_PATH = Path.home() / ".desk" / "pomodoros.jsonl"
 
 # Ember-hearth render palette: bright digits carved out of a draining braille
 # fire that fills the whole panel. The field carries the temperature gradient;
@@ -202,6 +204,37 @@ def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
     return out
 
 
+# ---- the journal ------------------------------------------------------------
+# state.json holds only the LIVE timer — remaining/running/completed/target, no
+# timestamp of any kind — so yesterday has always been unrecoverable. This is
+# the one file that fixes that: one JSON object per interval that ended, append
+# only. It is what the day-close reads, and until it has lines the day-close has
+# nothing true to say.
+#
+# It records DURATIONS AND OUTCOMES, never content: no note text, no path, no
+# typed string. And it never raises — `Pomodoro.load` already sets that rule for
+# this module, and a timer that dies because its log could not be written would
+# be a worse bug than the missing log.
+def append_journal(outcome: str, seconds: int, started_at: str | None = None,
+                   path: Path | None = None) -> dict:
+    """Append one interval to the journal and return the record written.
+
+    Best-effort by design: a full disk, a read-only home or a stray directory
+    where the file should be all end in a lost line and nothing else."""
+    rec = {"started_at": started_at,
+           "ended_at": datetime.now().isoformat(timespec="seconds"),
+           "seconds": int(seconds),
+           "outcome": outcome}
+    path = path or JOURNAL_PATH
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+    except Exception:
+        pass
+    return rec
+
+
 # ---- pomodoro state ---------------------------------------------------------
 @dataclass
 class Pomodoro:
@@ -209,6 +242,13 @@ class Pomodoro:
     running: bool = False
     completed: int = 0                 # pomodoros finished in the current set
     target: int = POMO_SET             # size of the set (adjustable, 1..POMO_MAX)
+
+    # Wall-clock start of the interval now on the clock. Deliberately NOT a
+    # dataclass field: `save()` is `asdict()`, so declaring it would change
+    # state.json's shape for a value that is worthless across a restart. If the
+    # app was restarted mid-interval it stays None and the journal says null,
+    # which is the truth rather than a reconstructed guess.
+    _started = None
 
     @classmethod
     def load(cls, path: Path | None = None) -> "Pomodoro":
@@ -243,6 +283,8 @@ class Pomodoro:
             if self.remaining == 0:
                 self.running = False
                 self.completed = min(self.target, self.completed + 1)
+                append_journal("completed", WORK_SECONDS, self._started)
+                self._started = None
                 return True
         return False
 
@@ -250,16 +292,27 @@ class Pomodoro:
         if self.remaining == 0:
             self.remaining = WORK_SECONDS
         self.running = not self.running
+        if self.running and self._started is None:
+            self._started = datetime.now().isoformat(timespec="seconds")
 
     def skip(self) -> None:
+        """Abandon the interval and count it. The journal keeps skips: a day
+        with four skips and one completion is a fact about the day, and hiding
+        it would make the close flatter."""
         self.running = False
         self.completed = min(self.target, self.completed + 1)
+        append_journal("skipped", WORK_SECONDS - self.remaining, self._started)
+        self._started = None
         self.remaining = WORK_SECONDS
 
     def reset(self) -> None:
+        """Throw the set away. NOT journalled: reset means "this never counted",
+        and it also zeroes `completed` — writing a line here would put work in
+        the ledger that the user just declared didn't happen."""
         self.running = False
         self.remaining = WORK_SECONDS
         self.completed = 0
+        self._started = None
 
     def add(self) -> None:
         self.target = min(POMO_MAX, self.target + 1)

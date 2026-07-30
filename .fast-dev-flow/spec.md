@@ -1,80 +1,120 @@
-# Quick Spec — desk: transcribe the audio of a web video (YouTube + others)
+# Quick Spec — desk: the approved reimagining, ported into the real app
+
+- **Status:** open
+- **Branch:** `redesign-deck`
+- **Base ref:** `main` @ 3fc3880
+- **Flow revision:** fast-dev-flow as loaded 2026-07-30 (local; remote manifest
+  `docs/FLOW-VERSION.md` not present in this repo — PULL check recorded as a gap)
+- **Source of truth:** `_tui_synthesis/PROPOSAL.md` (approved in full),
+  `_tui_synthesis/desk_final.py` (reference model, 74/74),
+  `_tui_synthesis/verify_final.py` (the laws)
 
 ## 1. Objective
-Turn a video URL into a local transcript, so tutorials, talks and interviews can
-be read/searched instead of watched. Pull ONLY the audio track with yt-dlp and
-feed it to the existing GPU-or-CPU `transcribe_file()`. No re-encoding is needed
-(faster-whisper decodes the native m4a/webm/opus via PyAV), so ffmpeg is not a
-requirement.
 
-## 2. User stories
-- As a user, I paste a YouTube URL into desk and get a transcript `.md` without
-  leaving the app or opening a browser.
-- As a user, I can do the same from the terminal: `desk-transcribe <url>`.
-- As a user on a locked-down work machine, desk stays fully offline unless I
-  explicitly install the network extra.
+Port the approved reimagining out of the `_tui_synthesis` reference model and
+into desk's real modules, in seven supervised increments. The reference model is
+a **model**: its seats are re-implemented in desk's own modules, never imported
+at runtime.
+
+## 2. Scope note — this batch is SEVEN increments, not three
+
+fast-dev-flow's escape hatch fires above three increments in phase B. It is
+**declared here rather than tripped silently**: the operator approved the
+roadmap as seven separate cycles, each ≤5 files with its own gate and commit,
+which is seven small batches sharing one spec rather than one oversized batch.
+If any single increment needs a second sitting or exceeds its file cap, that
+increment promotes — not the whole batch.
 
 ## 3. Acceptance criteria (observable)
-- [x] AC-1: given an http(s) video URL, `fetch_audio()` writes ONE audio file
-      under `~/.desk/transcripts/<stamp>-<safe-title>/` and returns its path +
-      metadata (title, duration, extractor).
-- [x] AC-2: given a playlist/channel URL, exactly ONE video is downloaded
-      (`noplaylist`), never the whole list.
-- [x] AC-3: given a video longer than the cap (default 2 h), the download is
-      REFUSED before any bytes are fetched, with a message naming the duration.
-- [x] AC-4: given a non-http(s) URL (e.g. `file://`, `ftp://`), the request is
-      refused — the downloader is never handed a local-file scheme.
-- [x] AC-5: given a title with filesystem-hostile characters (`/ \ : * ? " < > |`),
-      the created folder name contains none of them and is never empty.
-- [x] AC-6: `desk-transcribe <url>` transcribes the video and writes a `.md`
-      whose header names the source URL and title; `desk-transcribe <file>`
-      keeps working exactly as before.
-- [x] AC-7: in-app, pasting a URL into the `i` picker input transcribes that
-      video; pressing `u` opens a URL prompt that does the same.
-- [x] AC-8: while fetching, the Record panel shows a distinct "fetching" state
-      with progress; on failure the panel returns to idle and reports the error.
-- [x] AC-9: without the `[web]` extra installed, the URL paths report a clear
-      "pip install desk[web]" message and NOTHING else in desk changes.
-- [x] AC-10: the live recording flow (space -> record -> auto-transcribe) is
-      unchanged; the existing suite stays green.
 
-## 4. Validation strategy
-Unit tests for the pure/guarded logic with yt-dlp mocked (URL detection, scheme
-refusal, playlist flag, duration cap, name sanitising, extra-missing guard) — no
-test performs a real download. One manual smoke against a real short video, run
-by hand and reported honestly. Deck-level tests for the `u` prompt / picker URL
-branch with `fetch_audio` monkeypatched.
+### Inc 1 — the journal line (the gate)
+- **AC-1.1**: when `Pomodoro.tick()` returns True, one JSON object is appended
+  to `~/.desk/pomodoros.jsonl` carrying `started_at`, `ended_at`, `seconds`,
+  `outcome`.
+- **AC-1.2**: when `Pomodoro.skip()` runs, one object with `outcome:"skipped"`
+  is appended.
+- **AC-1.3**: given a journal with N lines, after one more completion the file
+  has N+1 lines and the first N are byte-identical (append-only, never rewrite).
+- **AC-1.4**: given a missing `~/.desk/` directory, the first append creates it
+  and the line lands.
+- **AC-1.5**: given an unwritable journal path, `tick()` still returns True and
+  raises nothing (the timer never dies because the log did).
 
-## 5. Non-goals
-- No video download, no ffmpeg post-processing, no format conversion.
-- No batch/playlist mode, no subtitle scraping, no browser cookies/login for
-  private or paywalled content.
-- No change to the recording, board, focus or capture panels.
+### Inc 2 — the ember boundary
+- **AC-2.1**: `fire_cells(0.9) > fire_cells(0.5) > fire_cells(0.1)` with a
+  range ≥ 3x (today's shuffle reads 270/268/147 — a 1.8x range, and 90 % vs
+  50 % differ by 2 cells).
+- **AC-2.2**: the control test re-implements the shipped shuffle and asserts
+  the law calls it flat.
+- **AC-2.3**: every hearth row is exactly the same visible width (existing law,
+  must stay green).
 
-## 6. Detected security flags
-- [x] **External integration / third-party SDK** — yt-dlp, hitting external sites.
-- [x] **User input -> fetcher (SSRF-adjacent)** — an arbitrary URL is handed to a
-      downloader running on the user's machine.
-- [x] **Network exposure (egress)** — desk's FIRST outbound network access; it
-      was a fully offline tool until now.
-- [x] **Filesystem write from untrusted metadata** — the remote title becomes a
-      folder name.
-**security_required:** true
+### Inc 3 — register
+- **AC-3.1**: `grep -rn "your" desk/*.py` returns no hit inside a rendered UI
+  string (the `capture.py` module docstring and the quoted capture prompts are
+  the two declared exceptions).
 
-### Mitigations required by this spec
-1. Drive yt-dlp through its **Python API**; never interpolate a URL into a shell.
-2. Force `noplaylist=True` (AC-2).
-3. **Allow only `http`/`https`** schemes — reject `file://` and friends (AC-4).
-4. Fixed `outtmpl` inside a per-video directory under `~/.desk/transcripts/`.
-5. Sanitise the remote title before using it as a path segment (AC-5).
-6. Check duration BEFORE downloading; refuse past the cap (AC-3).
-7. Ship as an **opt-in extra** so an offline install stays offline (AC-9).
-8. State the ToS/copyright expectation in the README and in-app, alongside the
-   existing recording-consent note.
+### Inc 4 — the deck S/M/L
+- **AC-4.1**: at 40x12 the deck renders 3 cards and names the shed one; at
+  80x24 and 120x34 it renders 4.
+- **AC-4.2**: the size thresholds sit at `card_h < 5` (S) and `card_h >= 12`
+  (L) — the rename moved no threshold.
+- **AC-4.3**: a field is dropped whole or kept whole; no card renders a header
+  and nothing else.
 
-## 7. Batch status
-| Field | Value |
-|-------|-------|
-| Current phase | C — CLOSED 2026-07-25 |
-| Started | 2026-07-24 |
-| Notes | 2 increments: (1) fetch.py + extra + CLI; (2) in-app `i`/`u` + progress. |
+### Inc 5 — the day-close (`d`)
+- **AC-5.1**: `d` opens the close screen; `esc` leaves it.
+- **AC-5.2**: given an EMPTY journal the close renders an honest empty state
+  and no numeric figure.
+- **AC-5.3**: given a journal with entries, every figure shown is derived from
+  those entries.
+
+### Inc 6 — the animations
+- **AC-6.1**: each declared ambient has a period ≥ 2000 ms and each transition
+  ≤ 400 ms — nothing in the illegal 400–2000 ms gap.
+- **AC-6.2**: the ember's carved counter is byte-identical across all four
+  breath phases.
+- **AC-6.3**: the flame line's mean height does not move with `phase`.
+
+### Inc 7 — cleanup
+- **AC-7.1**: `_tui_synthesis/frames/{ledger,telar}_*.txt` are gone.
+- **AC-7.2**: README claims match what the code does.
+
+## 4. Out of scope
+
+- Pushing. The operator pushes.
+- Moving `_HIGH` instead of dropping `orange` (proposal §2.1 offered it; the
+  approved decision is the glyph house `!2`).
+- Changing `hints.py`'s capture-mode key list (see the premise table).
+
+## 5. Premise table (C-43)
+
+| Premise | Tier | Verdict | Executed evidence |
+|---|---|---|---|
+| `tick()` has a success branch returning True | premise | ✅ TRUE | `focus.py:246` — `return True` inside `if self.remaining == 0` |
+| `app.py:142-146` already catches exceptions around the tick | premise | ❌ **FALSE** | `sed -n '136,151p' desk/app.py \| grep try` → no match. There is **no** try/except in `_tick`. **Consequence:** the journal append must swallow its own errors (AC-1.5), matching `Pomodoro.load`'s declared "never raises" convention at `focus.py:215`. |
+| `~/.desk/pomodoros.jsonl` does not exist yet | premise | ✅ TRUE | `ls ~/.desk/pomodoros.jsonl` → No such file. `~/.desk/` holds config.json, record.json, state.json, transcripts/ |
+| `focus.py:164-166` is the shuffle drain | premise | ✅ TRUE | read: `random.Random(seed).shuffle(order)` / `lit = set(order[:round(frac*len(order))])` |
+| the shipped drain is flat at 90/50 | hypothesis | ✅ TRUE | proposal §3 table 270/268/147; **re-measured in Inc 2 against desk's own `hearth_lines`**, not taken on the proposal's word |
+| `picker.py:268` says "your clipboard" | premise | ✅ TRUE | `grep -rn "your" desk/*.py` → picker.py:268, record.py:365, capture.py:6 (docstring) |
+| desk.exe is not running | premise | ✅ TRUE | `tasklist \| grep desk.exe` → not running. `~/.desk/state.json` is uncontended. |
+| baseline suite is green | premise | ✅ TRUE | `python -m pytest -q` → **160 passed** in 9.80 s |
+| `hints.py:46-49` claims letter keys don't work in capture, but `app.py:55-59` marks b/f/c/m `priority=True` | premise | ❓ **UNDECIDABLE — declared OUT OF SCOPE in writing** | `tests/test_hints.py:48 test_capture_only_shows_keys_that_work` **encodes the current behaviour**. Per the operator's rule, surfaced not changed. Carried to the backlog. |
+| the reference model is a model, not a dependency | hypothesis | to verify at close | no `_tui_synthesis` import may appear under `desk/` |
+
+## 6. Security flags
+
+Scanned objective + criteria + description. **`security_required: false`**, with
+the near-misses named rather than passed over in silence:
+
+- **`user input` / `file upload`** — no new input surface. The `d` screen is
+  read-only over a file desk itself wrote.
+- **`.env` / `credential` / `secret`** — none. The journal records durations and
+  timestamps; **no note text, no project name typed by the user, no path.**
+- **new write to user state** — the one genuinely new thing. It is
+  **append-only**, to a **new** file, never touching `state.json`, and it fails
+  silently by design (AC-1.5) so a disk problem cannot kill the timer.
+
+The last item is not on fast-dev-flow's trigger list but is the riskiest line in
+the batch, so it is treated as if it were: bounded, append-only, crash-safe, and
+tested against a read-only path.
