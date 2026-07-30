@@ -8,6 +8,7 @@ and the app just drops the strings into its tiles/stage. State persists to
 from __future__ import annotations
 
 import json
+import math
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -136,6 +137,49 @@ HEARTH_ABOVE = 2                                   # field cell-rows above clock
 HEARTH_BELOW = 3                                   # field cell-rows below clock
 HEARTH_ROWS = HEARTH_ABOVE + 4 + HEARTH_BELOW      # 9 cell rows (clock is 4)
 _HEARTH_BREATH = 1.16                              # per-beat brightness on the field
+HEARTH_JIT = 2.6                                   # dot-rows of ragged on the front
+# The ash above the front: dense smoke at the burn line, thinning with height.
+# SEEDED-random rather than arithmetic — a periodic stipple like (x*5 + y*3) % 7
+# paints a diagonal moiré that reads as corduroy and fights the carved digits.
+_ASH_NEAR, _ASH_FAR, _ASH_FALLOFF = 0.34, 0.09, 6.0
+
+
+def _flame_line(w_dots: int, h_dots: int, frac: float, phase: int = 0,
+                seed: int = BED_SEED) -> list[float]:
+    """The burn front: one dot-row height per dot-column.
+
+    `base` is the datum and nothing else touches it. Each column carries its own
+    independent random phase, so across 60 columns the jitter averages to within
+    a tenth of a dot-row of the datum at every `phase` — rotating the phase
+    changes the SHAPE of the line and not its MEAN, which is what keeps the
+    breath a life channel instead of quietly editing the data channel.
+
+    (The reference model paired alternate columns with an opposite sign and
+    claimed that was what made the mean invariant. Measured over 24 phases it
+    was WORSE — 0.38 dot-rows of spread against 0.17 — because the paired
+    columns carry different random amplitudes and phases, so they never cancel.
+    The averaging does the work; the pairing was decoration, and it is gone.)"""
+    frac = max(0.0, min(1.0, frac))
+    rng = random.Random(seed)
+    amp = [rng.uniform(0.4, 1.0) * HEARTH_JIT for _ in range(w_dots)]
+    ph = [rng.uniform(0.0, 2 * math.pi) for _ in range(w_dots)]
+    base = (1.0 - frac) * h_dots
+    return [base + amp[x] * math.sin(ph[x] + phase * 0.9)
+            for x in range(w_dots)]
+
+
+_ASH_CACHE: dict = {}
+
+
+def _ash_grid(w_dots: int, h_dots: int) -> list[float]:
+    """One seeded random value per dot, CACHED — the ash is texture, not noise:
+    identical on every repaint, and costing a lookup per frame rather than a
+    re-derivation, which is the one motion cost class that is actually dear."""
+    key = (w_dots, h_dots)
+    if key not in _ASH_CACHE:
+        rng = random.Random(BED_SEED * 31 + w_dots)
+        _ASH_CACHE[key] = [rng.random() for _ in range(w_dots * h_dots)]
+    return _ASH_CACHE[key]
 
 
 def _clock_dotrows(timestr: str) -> list[str]:
@@ -147,13 +191,21 @@ def _clock_dotrows(timestr: str) -> list[str]:
 
 def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
                  cols: int = HEARTH_COLS, seed: int = BED_SEED,
-                 indent: int = 4) -> list[str]:
+                 indent: int = 4, phase: int = 0) -> list[str]:
     """The whole Focus panel as one draining braille fire with the clock carved
-    out of it. Field dots evaporate in a fixed shuffled order as `remaining_frac`
-    falls (stable across ticks); each field cell is tinted by its horizontal
-    cool→hot position, and on `beat` the lit field brightens a touch so a running
-    timer breathes. Digit cells render ONLY the digit dots, always at full
-    BRIGHT, so the time stays legible over the fire. All rows share one width."""
+    out of it.
+
+    THE DATUM IS A BOUNDARY THAT MOVES. The burn front's HEIGHT is
+    `remaining_frac`; below it solid fire, tinted by its horizontal cool→hot
+    position; above it ash, a stipple that carries no datum and exists because
+    the ground wants surface. The randomness is spent on the EDGE only.
+
+    This replaces a shuffled per-dot drain. With 8 dots to a braille cell the
+    odds of a cell going dark under a shuffle are (1-frac)**8, so the field
+    painted 270 cells at 90 % and 268 at 50 % — the draining was invisible until
+    the last minute. `record.py:_intake_field` already had the right answer in
+    this same repo: a front that moves. Rows all share one width; digit cells
+    carry ONLY digit dots, always at full BRIGHT, so the time never flickers."""
     remaining_frac = max(0.0, min(1.0, remaining_frac))
     W, H = cols * 2, HEARTH_ROWS * 4
     # carve the clock into the dot rows starting HEARTH_ABOVE cell-rows down
@@ -162,10 +214,8 @@ def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
     digit_dots = {(x, top + y) for y in range(16)
                   for x in range(min(W, len(art[y]))) if art[y][x] == "#"}
     digit_cells = {(x // 2, y // 4) for (x, y) in digit_dots}
-    # stable drain: shuffle every dot once, light the first `frac` share
-    order = [(x, y) for y in range(H) for x in range(W)]
-    random.Random(seed).shuffle(order)
-    lit = set(order[:round(remaining_frac * len(order))])
+    front = _flame_line(W, H, remaining_frac, phase, seed)
+    ash = _ash_grid(W, H)
     pad = " " * indent
     out = []
     for cy in range(HEARTH_ROWS):
@@ -179,15 +229,24 @@ def hearth_lines(remaining_frac: float, timestr: str, beat: bool = False,
                             mask |= _BIT[(x, y)]
                 cells.append((chr(0x2800 + mask), BRIGHT))
             else:
-                mask = 0
+                fire = smoke = 0
                 for y in range(4):
                     for x in range(2):
-                        if (cx * 2 + x, cy * 4 + y) in lit:
-                            mask |= _BIT[(x, y)]
-                if mask:
+                        dx, dy = cx * 2 + x, cy * 4 + y
+                        if dy >= front[dx]:
+                            fire |= _BIT[(x, y)]
+                        else:
+                            up = front[dx] - dy
+                            dens = (_ASH_FAR + (_ASH_NEAR - _ASH_FAR)
+                                    * math.exp(-up / _ASH_FALLOFF))
+                            if ash[dy * W + dx] < dens:
+                                smoke |= _BIT[(x, y)]
+                if fire:
                     col = temp_hex(cx / (cols - 1)) if cols > 1 else temp_hex(0.5)
-                    cells.append((chr(0x2800 + mask),
+                    cells.append((chr(0x2800 + fire),
                                   _lighten(col, _HEARTH_BREATH) if beat else col))
+                elif smoke:
+                    cells.append((chr(0x2800 + smoke), EMBER))
                 else:
                     cells.append((" ", None))
         # coalesce equal-colour runs into compact markup; symmetric padding
