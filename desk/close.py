@@ -19,7 +19,10 @@ The register is desk's: it reports the day, it does not grade it.
 from __future__ import annotations
 
 import json
+import math
 from datetime import date, datetime, timedelta
+
+from rich.markup import escape as esc
 
 from . import focus
 
@@ -37,11 +40,23 @@ _BIT = {(0, 0): 0x01, (0, 1): 0x02, (0, 2): 0x04, (0, 3): 0x40,
         (1, 0): 0x08, (1, 1): 0x10, (1, 2): 0x20, (1, 3): 0x80}
 
 
+MAX_SECONDS = 24 * 3600        # an "interval" longer than a day is not one
+
+
 def read_journal(path=None) -> list[dict]:
     """Every well-formed record in the journal. Never raises: a missing file is
     an empty day, and one corrupt line costs that line and nothing else — a
     close that crashes on a half-written record is worse than a close that is
-    one interval short."""
+    one interval short.
+
+    EVERY FIELD IS COERCED HERE, at the trust boundary, because this is where
+    the guarantee above is either kept or merely claimed. The first version
+    validated only that the line was a dict with a parseable `ended_at`, so a
+    line that was perfectly good JSON with `"seconds": "1500"` — or `null`, or
+    `[1]`, or `1e999`, or `NaN` — sailed through and detonated later in the
+    arithmetic. Because the journal is append-only and has no repair path, ONE
+    such line made `d` crash the app forever. `Pomodoro.load` already sets the
+    rule for this module: clamp and cast everything you read off disk."""
     path = path or focus.JOURNAL_PATH
     out = []
     try:
@@ -54,9 +69,22 @@ def read_journal(path=None) -> list[dict]:
             continue
         try:
             rec = json.loads(line)
-            if isinstance(rec, dict) and rec.get("ended_at"):
-                rec["_ended"] = datetime.fromisoformat(rec["ended_at"])
-                out.append(rec)
+            if not (isinstance(rec, dict) and rec.get("ended_at")):
+                continue
+            secs = rec.get("seconds", 0)
+            # REJECT, do not repair. `float("1500")` would succeed and quietly
+            # accept a record desk never writes — and reinterpreting a value
+            # whose TYPE is wrong is a confident guess about a file that some
+            # other tool produced. `bool` is excluded because it is an int.
+            if isinstance(secs, bool) or not isinstance(secs, (int, float)):
+                continue
+            if not math.isfinite(secs) or not 0 <= secs <= MAX_SECONDS:
+                continue                             # inf, NaN, negative, absurd
+            secs = float(secs)
+            rec["seconds"] = secs
+            rec["outcome"] = str(rec.get("outcome", ""))
+            rec["_ended"] = datetime.fromisoformat(rec["ended_at"])
+            out.append(rec)
         except Exception:
             continue
     return out
@@ -177,6 +205,13 @@ def render_body(rows: list[dict] | None = None, day: date | None = None) -> str:
         # a ledger with no entries and a ledger claiming a total of nothing.
         out += hour_band([0.0] * 24)
         out.append(hour_axis())          # the instrument, with nothing on it yet
+        if focus.JOURNAL_ERROR:
+            # An empty day and a day whose journal could not be WRITTEN look
+            # identical from here, and only one of them is the operator's day.
+            out += ["", f"    [{MUT}]the journal could not be written[/]",
+                    f"    [dim]{esc(focus.JOURNAL_ERROR)}[/dim]",
+                    f"    [dim]intervals are being counted and not kept[/dim]"]
+            return "\n".join(out)
         out += ["", f"    [{MUT}]the journal opens today[/]",
                 f"    [dim]intervals are written when they end;"
                 f" nothing has ended yet[/dim]"]
