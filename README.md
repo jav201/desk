@@ -11,7 +11,7 @@
 </p>
 
 
-A frameless, always-on-top **widget deck** for the terminal — one window, a compact live strip that expands into panels on demand. Built with [Textual](https://textual.textualize.io/).
+A frameless, always-on-top **widget deck** for the terminal — one window holding four live cards that re-lay themselves out for whatever size the window is, each expanding into a full panel on demand. Built with [Textual](https://textual.textualize.io/).
 
 Panels:
 - **Board** — mission control for your work, read live from the [taskboard](https://github.com/jav201/taskboard) app: the task you're on *now*, what's next up, a 14-day due horizon (overdue massed left of the today-rule, one coloured dot per due date), and a per-project progress ledger.
@@ -53,7 +53,7 @@ desk
 | `c` | Capture panel |
 | `m` | Record panel |
 | `d` | Close the day |
-| `esc` | collapse to the strip |
+| `esc` | back to the deck |
 | `space` | primary action of the panel — pomodoro start/pause (Focus) · start/stop recording (Record) |
 | `s` / `r` | pomodoro skip / reset |
 | `+` / `-` | Focus: fewer/more pomodoros · Record: adjust auto-stop ±5 min |
@@ -65,6 +65,46 @@ desk
 | `o` | open the full board (taskboard) in a new terminal |
 | `F5` | refresh the board now |
 | `q` | quit |
+
+## The deck resizes
+
+The four cards share the window, and how much each one says depends on how much
+room there is. `desk/deck.py` decides it — pure arithmetic, no widgets — and the
+app places every card from that decision, so the layout is a thing you can read
+and test rather than a thing you have to squint at.
+
+Three sizes, named after the two measured breakpoints in the height each card
+gets (`< 5` rows, `>= 12` rows):
+
+| | S · 40x12 | M · 80x24 | L · 120x34 |
+|---|---|---|---|
+| **cards seated** | 3 — one is shed, and named | 4 | 4 |
+| **per card** | its head + its one live line | a prefix of its fields | every declared field |
+| **the ember** | given up whole | carved clock, ~6 rows | carved clock, up to 11 rows |
+| **the ribbon clock** | dropped below 58 cells | shown | shown |
+
+Two rules hold at every size:
+
+- **A field is given up whole, never truncated.** A card that cannot afford its
+  ember shows no ember — not a sliced one. That is the difference between a
+  decision and a bug.
+- **Space is earned by information.** A card gets the rows its declared fields
+  cost and no more; leftover room goes to the one block per card that genuinely
+  scales (more projects, a taller fire), up to a ceiling, and then stops. A card
+  with nothing more to say gets nothing, because the same information stretched
+  reads worse than the gap did.
+
+When the window is too small to seat every card, the deck sheds one — capture
+first, the board last, and never a card that is doing something (a running
+timer, a recording). **A shed card is always announced**: the key bar names it
+in words, and the ribbon marks its letter. Nothing you could act on leaves the
+screen silently. At the very narrowest widths the words give way to keys and
+then to a count, because at 28 cells the names and the way out do not both fit
+— but the mark stays.
+
+The stage is a *mode*, not a size: `b`/`f`/`c`/`m`/`d` give one card the whole
+window, and `esc` brings the deck back. No window is ever wide enough to arrive
+there on its own.
 
 ## Data & config
 
@@ -166,10 +206,13 @@ Textual can't remove the OS window chrome — the terminal does. Use [WezTerm](h
 
 ## Adding a widget (for later)
 
-The deck is built to grow. Each panel is a small module (`desk/board.py`, `desk/focus.py`, `desk/capture.py`) exposing `render_tile(...)` and `render_body(...)`. To add a new widget:
+The deck is built to grow. Each panel is a small module (`desk/board.py`, `desk/focus.py`, `desk/capture.py`) exposing `render_tile(...)` (the one live line), `render_body(...)` (the full-window panel) and `render_card(...)` (the deck card at whatever rows it was allotted). To add a new widget:
 
-1. Write `desk/<name>.py` with those two renderers (plus any state it needs).
-2. In `desk/app.py`: add it to `PANELS`, add a tile entry in `_tiles`, a branch in `_body`, and a hotkey `Binding`.
+1. Write `desk/<name>.py` with those three renderers (plus any state it needs).
+2. In `desk/deck.py`: declare the card's fields, what each costs, the floor each
+   can shrink to, and which single block absorbs leftover rows.
+3. In `desk/app.py`: add it to `PANELS`, a tile entry in `_tiles`, a branch in
+   `_body` and in `_card_text`, and a hotkey `Binding`.
 
 Panels are deliberately decoupled — data flows through files, not cross-imports — so a new widget slots in without touching the others. A panel registry is the natural refactor once there are more than a handful.
 
