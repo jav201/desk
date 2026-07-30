@@ -138,6 +138,22 @@ HEARTH_BELOW = 3                                   # field cell-rows below clock
 HEARTH_ROWS = HEARTH_ABOVE + 4 + HEARTH_BELOW      # 9 cell rows (clock is 4)
 _HEARTH_BREATH = 1.16                              # per-beat brightness on the field
 HEARTH_JIT = 2.6                                   # dot-rows of ragged on the front
+
+# THE EMBER'S AMBIENT, declared rather than emergent.
+#
+# The breath lives in the GLYPH channel: `phase` rotates the front's raggedness,
+# so the fire's edge moves while its mean height — the datum — does not. It used
+# to live in the COLOUR channel alone (`_HEARTH_BREATH` lifting the fire's
+# brightness on alternate ticks), and colour is the one channel that does not
+# survive a monochrome terminal, a screenshot or a colour-blind reader. The
+# colour lift is KEPT as a secondary touch, because it now carries nothing.
+#
+# An AMBIENT loops at >= 2000 ms; a TRANSITION lands in <= 400 ms; the span
+# between is illegal, being too slow to read as a change and too fast to ignore.
+# Four phases at the deck's one-second tick is a 4000 ms loop.
+EMBER_PHASES = 4
+EMBER_PERIOD_MS = 4000
+EMBER_LEVEL = "basic"        # carries meaning -> survives TEXTUAL_ANIMATIONS=basic
 # The ash above the front: dense smoke at the burn line, thinning with height.
 # SEEDED-random rather than arithmetic — a periodic stipple like (x*5 + y*3) % 7
 # paints a diagonal moiré that reads as corduroy and fights the carved digits.
@@ -397,15 +413,21 @@ def render_tile(pomo: Pomodoro, beat: bool = False) -> str:
     return f"{time}  [dim]{dots(pomo.completed, pomo.target)}[/dim]"
 
 
-def render_body(pomo: Pomodoro, beat: bool = False) -> str:
+def render_body(pomo: Pomodoro, beat: bool = False, phase: int = 0) -> str:
     """Ember-hearth layout: the whole panel is a draining braille fire with the
-    clock carved out of it, then neutral set-dots and controls. A running timer
-    breathes on `beat` (tick parity); a paused or idle one holds still."""
+    clock carved out of it, then neutral set-dots and controls.
+
+    A RUNNING timer breathes — the fire's edge moves through `phase`, and its
+    brightness lifts on `beat` as a secondary touch. A paused or idle one holds
+    completely still, which is a designed state and not an oversight: stillness
+    is how the panel says the clock is not running."""
     state = "running" if pomo.running else ("done" if pomo.remaining == 0 else "paused")
     remaining_frac = pomo.remaining / WORK_SECONDS
     breathe = beat and pomo.running
+    ph = (phase % EMBER_PHASES) if pomo.running else 0
     out = ["[bold #2dd4bf]FOCUS[/]", ""]
-    out.extend(hearth_lines(remaining_frac, mmss(pomo.remaining), beat=breathe))
+    out.extend(hearth_lines(remaining_frac, mmss(pomo.remaining),
+                            beat=breathe, phase=ph))
     out.append("")
     out.append(dots_line(pomo.completed, pomo.target, state))
     out.append("")

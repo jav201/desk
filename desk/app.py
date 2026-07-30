@@ -461,7 +461,10 @@ class Deck(App):
         if which == "close":
             return close.render_body()
         if which == "focus":
-            return focus.render_body(self.pomo, beat=self._beat)
+            # the ambient's phase comes from the 1 s tick: 4 phases = a 4000 ms
+            # loop, which is the regime an ambient has to be in.
+            return focus.render_body(self.pomo, beat=self._beat,
+                                     phase=self._ticks)
         if which == "board":
             return board.render_body(self.board_data, beat=self._beat)
         if which == "record":
