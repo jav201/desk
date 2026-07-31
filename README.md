@@ -1,13 +1,15 @@
 # desk
 
 <p align="center">
-  <img src="docs/desk-focus.gif" width="540" alt="desk — focus pomodoro"><br>
-  <sub>Focus — a braille pomodoro clock over an ember field that drains as the interval runs down.</sub>
+  <img src="docs/ember.gif" width="560" alt="desk — the focus ember draining over one interval"><br>
+  <sub>Focus — the clock is carved <em>out of</em> an ember field, and the fire's burn line falls as the interval runs down.</sub>
 </p>
 
 <p align="center">
-  <img src="docs/desk-board.png" width="46%" alt="board panel">
-  <img src="docs/desk-capture.png" width="46%" alt="capture panel">
+  <img src="docs/deck-m.svg" width="92%" alt="the deck at 80x24 — four cards">
+</p>
+<p align="center">
+  <sub>The deck at M (80x24): four cards, each its own idiom, sharing one window.</sub>
 </p>
 
 
@@ -19,6 +21,11 @@ Panels:
 - **Close** (`d`) — the day's closing entry: twenty-four hours as one braille field, each hour a column as tall as the minutes spent in it, plus the day's completions, skips, hot hour and streak. Every figure is read from the journal; a day with nothing in it says so and prints no number.
 - **Capture** — a rotating prompt; press enter and the line lands in your Obsidian daily note (or a local file when the vault isn't around).
 - **Record** — capture a meeting and transcribe it **locally, fully offline** (opt-in: `pip install -e ".[record]"`).
+
+<p align="center">
+  <img src="docs/focus.svg" width="88%" alt="the focus panel — a clock carved out of the ember"><br>
+  <sub>Focus opened to the whole window: the digits are not printed <em>over</em> the fire, they are cut <em>out</em> of it.</sub>
+</p>
 
 ## Install
 
@@ -79,9 +86,23 @@ gets (`< 5` rows, `>= 12` rows):
 | | S · 40x12 | M · 80x24 | L · 120x34 |
 |---|---|---|---|
 | **cards seated** | 3 — one is shed, and named | 4 | 4 |
+| **the focus card** | 38 x 2 | 38 x 14 | 58 x 15 |
 | **per card** | its head + its one live line | a prefix of its fields | every declared field |
-| **the ember** | given up whole | carved clock, ~6 rows | carved clock, up to 11 rows |
+| **the ember** | given up whole | 10 rows, clock carved | 11 rows, clock carved |
 | **the ribbon clock** | dropped below 58 cells | shown | shown |
+
+<p align="center">
+  <img src="docs/deck-s.svg" width="42%" alt="the deck at 40x12">
+  <img src="docs/deck-l.svg" width="53%" alt="the deck at 120x34">
+</p>
+<p align="center">
+  <sub>S (40x12) — three cards, <code>capture</code> shed and named in the key bar · L (120x34) — every declared field seated.</sub>
+</p>
+
+A narrow M is a real size and it gives things up too: at 58x14 each card is 27
+cells wide, the ember gets 4 rows, and the carved clock — which needs 30 cells —
+is renounced whole rather than sliced, so the fire burns bare and the time is
+read from the line below it.
 
 Two rules hold at every size:
 
@@ -106,6 +127,24 @@ The stage is a *mode*, not a size: `b`/`f`/`c`/`m`/`d` give one card the whole
 window, and `esc` brings the deck back. No window is ever wide enough to arrive
 there on its own.
 
+<p align="center">
+  <img src="docs/close.svg" width="88%" alt="the day-close panel"><br>
+  <sub>The day-close (<code>d</code>) — twenty-four hours as one braille field, over a day's real journal.</sub>
+</p>
+
+### Regenerating these images
+
+Every image above is captured from the running app, headless:
+
+```bash
+python docs/make_assets.py
+```
+
+The stills are Textual's own SVG export and the animation is rasterised from the
+compositor's styled cells, so an image here cannot show a layout the code cannot
+produce. It reads a fixture, never `~/.desk`. If a picture and the program ever
+disagree, that command settles it.
+
 ## Data & config
 
 - **Board** reads `~/.taskboard/board.json` (written by taskboard) read-only, auto-refreshing every ~5s; `F5` forces an instant reload. No taskboard installed? The Board panel simply shows "no board loaded". Reading is **drift-tolerant**: both the current `phase` schema and the older `status` one are understood, and a task whose format has changed is repaired rather than dropped, so a taskboard upgrade can never make your work vanish from the panel.
@@ -121,8 +160,8 @@ there on its own.
 ## Record — meeting transcription
 
 <p align="center">
-  <img src="docs/desk-record.gif" width="520" alt="desk record panel — recording with auto-stop countdown"><br>
-  <sub>Recording: live level meter, elapsed timer, and the auto-stop countdown.</sub>
+  <img src="docs/record.svg" width="88%" alt="the record panel at rest"><br>
+  <sub>The record panel at rest. While recording it shows a live level meter, the elapsed timer and the auto-stop countdown — none of which can be captured honestly without a microphone, so they are described rather than staged.</sub>
 </p>
 
 Capture a meeting and get a transcript — **fully local and offline** (no accounts, no cloud, nothing leaves your machine). Opt-in install:
