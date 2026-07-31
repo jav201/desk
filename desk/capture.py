@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.cells import cell_len
-from rich.markup import escape as esc
+from .markup import esc
 
 from . import deck
 

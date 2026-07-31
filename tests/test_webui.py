@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import re
 
+from textual.content import Content
+
 from desk import fetch, record
 from desk.app import Deck
 from desk.picker import AudioPicker, UrlPrompt
@@ -228,7 +230,13 @@ async def test_u_reports_when_the_web_extra_is_missing(monkeypatch):
         app.action_transcribe_url()
         await pilot.pause()
         assert not isinstance(app.screen, UrlPrompt)
-        assert any("desk[web]" in n for n in notes)
+        # THE ORACLE IS WHAT THE READER SEES. This used to assert `desk[web]`
+        # was in the raw string handed to `notify` — which it was, and the
+        # notification still rendered "pip install desk", because `notify`
+        # parses markup and ate the bracket. The instruction the message exists
+        # to give was the one part guaranteed to go missing.
+        rendered = [Content.from_markup(n).plain for n in notes]
+        assert any("desk[web]" in r for r in rendered), rendered
 
 
 # ---- the `i` picker's URL branch (AC-7) -------------------------------------

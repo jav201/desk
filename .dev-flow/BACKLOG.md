@@ -42,24 +42,25 @@ dropped silently.
   `rich.markup.escape` — which the other four modules use — is **insufficient
   for Textual's parser**: it only escapes `[` before `a-z#/@`, so `[Bold]`,
   `[_x]` and `[$accent]` survive it and become live spans.
-- **Four modules still escape with rich's `escape`** — `board.py`, `capture.py`,
-  `close.py`. Their sinks are board task titles, project names, the capture
-  prompt and the journal error, so the exposure is style injection and text
-  corruption, not action dispatch (no `@` tag survives rich's escape). The fix is
-  a one-line import swap per file to `from .markup import esc`; it was left out
-  of the batch only to stay inside the 5-file cap.
-- **`notify()` eats desk's own brackets.** Five sites say
-  `pip install desk[record]` / `desk[web]` and render as `pip install desk` —
-  the instruction loses the part that matters. Fixing it requires updating
-  `tests/test_webui.py:231`, which asserts on the RAW markup string rather than
-  what is rendered (the vacuous-oracle shape). Reverted from this batch for the
-  cap; both belong together.
-- **Three existing escape tests are vacuous oracles.** `tests/test_board.py:73`,
-  `tests/test_capture.py:79` and `tests/test_card_seats.py:316` assert
-  `"\[red]" in output` — a substring check on the markup string. It proves
-  `esc()` ran and cannot fail while the output is still live under Textual.
-  `tests/test_markup_safety.py` shows the replacement: parse the render and
-  compare its span set against a benign control.
+- ~~Four modules still escape with rich's `escape`~~ **SHIPPED** — `board.py`,
+  `capture.py`, `close.py` swapped onto `desk.markup`. No module in the package
+  imports `rich.markup.escape` any more.
+- ~~`notify()` eats desk's own brackets~~ **SHIPPED** — all five
+  `pip install desk[record]` / `desk[web]` sites now render the bracket.
+- ~~Three existing escape tests are vacuous oracles~~ **SHIPPED** — converted to
+  the span-set-vs-benign-control oracle in `tests/test_markup_safety.py`.
+
+### Open after the escape batch
+- **An intermittent `NoMatches` in the pilot-driven tests.** Seen twice in one
+  session, on different tests — `test_deck.py::test_record_start_sets_recording`
+  (`#stage-body`) and `test_smoke.py[size3]` (`#tile-board`) — both querying a
+  widget that is unconditionally in `compose`. NOT reproducible: 6 consecutive
+  full-suite runs at 378 passed afterwards, plus 5 isolated `test_smoke` runs,
+  with the same tree. Reads like a `run_test` mount/teardown race rather than a
+  defect in desk, but it is unproven either way and it will eventually fail a
+  run that matters. Worth a deliberate hunt (`-p no:randomly`, repeat count,
+  and a check of whether a pushed modal is still on the screen stack) rather
+  than another shrug.
 - **A hostile `board.json` title still breaks the row contract at the boundary.**
   Embedded newlines survive `normalize` (`board.py:119-123`) and `_emit` measures
   with `len()` not `cell_len`, so a CJK title overflows. Mitigated *defensively*
