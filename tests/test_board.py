@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 
+import pytest
+from test_markup_safety import assert_inert
+
 from desk import board
 from desk.app import Deck
 
@@ -66,11 +69,23 @@ def test_body_has_columns_and_counts(tmp_path):
     assert "funnel copy" in plain              # the doing task appears in the NOW banner
 
 
-def test_body_escapes_markup(tmp_path):
-    data = {"projects": [], "tasks": [{"id": "m", "title": "[red]boom[/red]", "status": "backlog"}], "settings": {}}
-    d = board.load(_write(tmp_path, data))
-    body = board.render_body(d)
-    assert "\\[red]" in body                          # escaped -> won't crash markup
+@pytest.mark.parametrize("payload", ["[red]boom[/red]", "[Bold]boom[/]",
+                                     "[$accent]boom[/]", "[_x]boom[/]"])
+def test_body_escapes_markup(tmp_path, payload):
+    """A task title comes out of `~/.taskboard/board.json` — a file desk neither
+    writes nor validates — and lands in a markup language.
+
+    THE ORACLE IS THE PARSER. This used to assert `"\\\\[red]" in body`, which
+    proves `esc()` ran and nothing more: it stayed green while the output was
+    still live, because it never asked Textual what the string MEANS. The last
+    three payloads are exactly the ones rich's escape lets through — they were
+    passing that old assertion and rendering as real styles."""
+    def render(title):
+        data = {"projects": [],
+                "tasks": [{"id": "m", "title": title, "status": "backlog"}],
+                "settings": {}}
+        return board.render_body(board.load(_write(tmp_path, data)))
+    assert_inert(render, payload, "board.render_body")
 
 
 async def test_deck_board_panel(tmp_path, monkeypatch):

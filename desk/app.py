@@ -334,7 +334,7 @@ class Deck(App):
 
     def _rec_toggle(self) -> None:
         if not record.AVAILABLE:
-            self.notify("recording needs: pip install desk[record]", severity="warning")
+            self.notify(r"recording needs: pip install desk\[record]", severity="warning")
             return
         if self._rec.running:
             wav = self._rec.stop()
@@ -380,7 +380,7 @@ class Deck(App):
         from — and never disturbs — the live recording flow."""
         from . import transcribe
         if not transcribe.AVAILABLE:
-            self.notify("transcription needs: pip install desk[record]", severity="warning")
+            self.notify(r"transcription needs: pip install desk\[record]", severity="warning")
             return
         if self._rec_state != "idle":
             self.notify("busy — finish the current job first", severity="warning")
@@ -410,10 +410,10 @@ class Deck(App):
         from . import fetch
         from . import transcribe
         if not transcribe.AVAILABLE:
-            self.notify("transcription needs: pip install desk[record]", severity="warning")
+            self.notify(r"transcription needs: pip install desk\[record]", severity="warning")
             return
         if not fetch.AVAILABLE:
-            self.notify("web video needs: pip install desk[web]", severity="warning")
+            self.notify(r"web video needs: pip install desk\[web]", severity="warning")
             return
         if self._rec_state != "idle":
             self.notify("busy — finish the current job first", severity="warning")

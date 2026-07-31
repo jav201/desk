@@ -212,7 +212,7 @@ class AudioPicker(ModalScreen):
         text = event.value.strip()
         if fetch.is_url(text):                       # a URL: hand it back as a str
             if not fetch.AVAILABLE:
-                self.notify("web video needs: pip install desk[web]", severity="warning")
+                self.notify(r"web video needs: pip install desk\[web]", severity="warning")
                 return
             self.dismiss(text)
         elif text:                                   # a typed/pasted path

@@ -15,7 +15,7 @@ import json
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
-from rich.markup import escape as esc
+from .markup import esc
 
 from . import deck
 

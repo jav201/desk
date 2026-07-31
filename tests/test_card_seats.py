@@ -23,6 +23,7 @@ when the geometry changes underneath it, which is the failure mode
 """
 from __future__ import annotations
 
+import copy
 import inspect
 import json
 import re
@@ -30,6 +31,8 @@ from datetime import date, timedelta
 
 import pytest
 from rich.cells import cell_len
+
+from test_markup_safety import assert_inert
 
 from desk import board, capture, deck, focus, record
 from desk.app import Deck, seats
@@ -87,6 +90,21 @@ BOARD_DATA = {
         {"id": "d", "title": "a finished thing", "project_id": "p3", "status": "done"},
         {"id": "e", "title": "an orphan", "status": "backlog"},
     ]}
+def _poison(title, project=None):
+    """`BOARD_DATA` with the next-up task's title — and optionally a project
+    name — replaced. Those are the two separate paths by which a string from
+    `board.json` reaches the card, and they escape at different call sites."""
+    d = copy.deepcopy(BOARD_DATA)
+    for t in d["tasks"]:
+        if t["id"] == "b":
+            t["title"] = title
+    if project is not None:
+        for p in d["projects"]:
+            if p["id"] == "p2":
+                p["name"] = project
+    return d
+
+
 POMO = focus.Pomodoro(remaining=754, running=True, completed=2)
 TRANSCRIPT = "the quarterly numbers are confidential until thursday"
 
@@ -307,20 +325,27 @@ def test_the_fires_ramp_is_spent_only_at_the_declared_seats(monkeypatch):
 def test_a_poisoned_task_title_is_painted_and_not_obeyed():
     """The security half. A title and a project name come out of
     `~/.taskboard/board.json`, a file desk neither writes nor validates, and they
-    land in a markup language. `[red]boom[/red]` has to arrive as those fifteen
-    characters."""
+    land in a markup language.
+
+    THE ORACLE IS THE PARSER, not a substring. The old form asserted
+    `"\\\\[red]" in out`, which proves `esc()` ran and stays green while the
+    output is still live: `[Bold]`, `[_x]` and `[$accent]` all survive rich's
+    escape and become real styles under Textual. Swept over every seat, because
+    a field that only appears at L is a sink a single-size check cannot see."""
     hit = 0
-    for w, h, want in sorted(CASES["board"]):
-        out = _card("board", w, h, want)
-        assert "[red]boom[/red]" not in _TAG.sub("", out), (
-            f"the title was obeyed as markup at {w}x{h}")
-        if want >= 2 and w >= 40:
-            assert "\\[red]" in out, f"the title vanished at {w}x{h} want={want}"
+    for payload in ("[red]boom[/red]", "[Bold]boom[/]", "[$accent]boom[/]"):
+        for w, h, want in sorted(CASES["board"]):
+            if want < 2 or w < 40:
+                continue          # the title has no seat here; nothing to judge
+            assert_inert(lambda t: _card("board", w, h, want, _poison(t)),
+                         payload, f"board.render_card/{w}x{h}/want={want}",
+                         expect=payload[:5])   # a seat may truncate the tail
             hit += 1
     assert hit, "no seat ever drew the poisoned title — the law is vacuous"
-    # and the same for a project name, which reaches the ledger by another path
-    wide = _card("board", 58, 13, 5)
-    assert "\\[bold]evil" in wide, wide
+    # and the same for a project NAME, which reaches the ledger by another path
+    assert_inert(lambda t: _card("board", 58, 13, 5, _poison("ok", project=t)),
+                 "[Bold]evil[/]", "board.render_card/project-name",
+                 expect="[Bold")
 
 
 def test_the_transcript_never_reaches_the_deck():

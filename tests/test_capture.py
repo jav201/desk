@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import pytest
+from test_markup_safety import assert_inert
+
 from desk import capture
 from desk.app import Deck
 
@@ -76,8 +79,20 @@ def test_prompt_rotates():
     assert capture.pick_prompt(len(capture.PROMPTS)) == capture.PROMPTS[0]
 
 
-def test_body_escapes_markup():
-    assert "\\[red]" in capture.render_body("[red]x[/red]")
+@pytest.mark.parametrize("payload", ["[red]x[/red]", "[Bold]x[/]",
+                                     "[$accent]x[/]", "[_y]x[/]"])
+def test_body_escapes_markup(payload):
+    """The prompt is desk's own, but the SAVED NOTE NAME beside it is a filename,
+    and the vault it comes from is configured by the operator.
+
+    The old form asserted `"\\\\[red]" in body` — a substring check on the markup
+    string, which cannot fail while the output is still live under Textual's
+    parser. The last three payloads survive rich's escape and were rendering as
+    styles under it."""
+    assert_inert(lambda t: capture.render_body(t), payload,
+                 "capture.render_body/prompt")
+    assert_inert(lambda t: capture.render_body("ok", saved=t), payload,
+                 "capture.render_body/saved")
 
 
 async def test_deck_capture_writes(tmp_path, monkeypatch):
