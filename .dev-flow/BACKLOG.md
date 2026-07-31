@@ -36,13 +36,30 @@ dropped silently.
 ## Open
 
 ### From the wiring batch (`2026-07-30-batch-01`)
-- **HIGH · `record.py` renders two unescaped external strings.** `:293` is a web
-  video's title — network-sourced, attacker-controlled — and `:377-378` is the
-  transcript preview. Under Textual's parser an injected `[@click=app.quit]`
-  becomes a **live action span** (verified); under rich it raises `MarkupError`.
-  Pre-existing on `main`, NOT introduced by the wiring, and the card seats do
-  not widen it (`CARD_FIELDS["record"]` excludes both, and a test pins that).
-  Fix: wrap both in `esc()`.
+- ~~HIGH · `record.py` renders two unescaped external strings~~ **SHIPPED**
+  (`desk/markup.py` + 14 sites, `tests/test_markup_safety.py`). The scan that
+  preceded the fix found the class was **13 sinks, not 2**, and that
+  `rich.markup.escape` — which the other four modules use — is **insufficient
+  for Textual's parser**: it only escapes `[` before `a-z#/@`, so `[Bold]`,
+  `[_x]` and `[$accent]` survive it and become live spans.
+- **Four modules still escape with rich's `escape`** — `board.py`, `capture.py`,
+  `close.py`. Their sinks are board task titles, project names, the capture
+  prompt and the journal error, so the exposure is style injection and text
+  corruption, not action dispatch (no `@` tag survives rich's escape). The fix is
+  a one-line import swap per file to `from .markup import esc`; it was left out
+  of the batch only to stay inside the 5-file cap.
+- **`notify()` eats desk's own brackets.** Five sites say
+  `pip install desk[record]` / `desk[web]` and render as `pip install desk` —
+  the instruction loses the part that matters. Fixing it requires updating
+  `tests/test_webui.py:231`, which asserts on the RAW markup string rather than
+  what is rendered (the vacuous-oracle shape). Reverted from this batch for the
+  cap; both belong together.
+- **Three existing escape tests are vacuous oracles.** `tests/test_board.py:73`,
+  `tests/test_capture.py:79` and `tests/test_card_seats.py:316` assert
+  `"\[red]" in output` — a substring check on the markup string. It proves
+  `esc()` ran and cannot fail while the output is still live under Textual.
+  `tests/test_markup_safety.py` shows the replacement: parse the render and
+  compare its span set against a benign control.
 - **A hostile `board.json` title still breaks the row contract at the boundary.**
   Embedded newlines survive `normalize` (`board.py:119-123`) and `_emit` measures
   with `len()` not `cell_len`, so a CJK title overflows. Mitigated *defensively*

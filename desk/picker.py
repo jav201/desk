@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .markup import esc
 from textual.binding import Binding
 from textual.containers import VerticalScroll
 from textual.screen import ModalScreen
@@ -163,8 +164,8 @@ class AudioPicker(ModalScreen):
     def _link_card(self, url: str) -> list[str]:
         from . import fetch
         host = url.split("/")[2] if url.count("/") >= 2 else url
-        lines = [f"[bold #2dd4bf]transcribe a web video[/]  [dim]{_fit(host, 30)}[/dim]",
-                 "", f"[#2dd4bf]◆[/] [#dbe4ee]{_fit(url, 46)}[/]", ""]
+        lines = [f"[bold #2dd4bf]transcribe a web video[/]  [dim]{esc(_fit(host, 30))}[/dim]",
+                 "", f"[#2dd4bf]◆[/] [#dbe4ee]{esc(_fit(url, 46))}[/]", ""]
         if fetch.AVAILABLE:
             lines += ["[dim]Enter fetches the audio and transcribes it[/dim]",
                       "[dim]audio only · transcribed locally · max 2 h[/dim]"]
@@ -181,7 +182,7 @@ class AudioPicker(ModalScreen):
         if fetch.is_url(typed):                      # a URL: show the link card
             self.query_one("#pick-body", Label).update("\n".join(self._link_card(typed)))
             return
-        head = f"[bold #2dd4bf]transcribe a file[/]  [dim]{_fit(str(self.cwd), 42)}[/dim]"
+        head = f"[bold #2dd4bf]transcribe a file[/]  [dim]{esc(_fit(str(self.cwd), 42))}[/dim]"
         lines = [head, ""]
         lo = max(0, min(self.idx - _ROWS // 2, max(0, len(self.entries) - _ROWS)))
         for i in range(lo, min(lo + _ROWS, len(self.entries))):
@@ -193,7 +194,7 @@ class AudioPicker(ModalScreen):
                 icon, text, color = ">", p.name + "/", "#38bdf8"
             else:
                 icon, text, color = "-", p.name, "#3fb950"
-            body = f"{icon} {_fit(text, 40)}" if p != self.cwd.parent else ".."
+            body = f"{icon} {esc(_fit(text, 40))}" if p != self.cwd.parent else ".."
             lines.append(f"[on #1b2735] [{color}]{body}[/] [/]" if i == self.idx
                          else f"  [{color}]{body}[/]")
         if not self.entries:

@@ -29,6 +29,7 @@ from . import capture
 from . import close
 from . import deck
 from . import focus
+from .markup import esc
 from . import hints
 from . import record
 from .picker import AudioPicker, UrlPrompt
@@ -274,7 +275,7 @@ class Deck(App):
                 subprocess.Popen(["taskboard"])
             self.notify("opening taskboard…")
         except Exception as exc:
-            self.notify(f"couldn't open taskboard: {exc}", severity="error")
+            self.notify(f"couldn't open taskboard: {esc(exc)}", severity="error")
 
     def action_open_transcripts(self) -> None:
         """Open the transcripts folder (~/.desk/transcripts) in the OS file
@@ -291,9 +292,9 @@ class Deck(App):
                 subprocess.Popen(["open", str(d)])
             else:
                 subprocess.Popen(["xdg-open", str(d)])
-            self.notify(f"opening {d}")
+            self.notify(f"opening {esc(d)}")
         except Exception as exc:
-            self.notify(f"couldn't open transcripts: {exc}", severity="error")
+            self.notify(f"couldn't open transcripts: {esc(exc)}", severity="error")
 
     def action_pomo_toggle(self) -> None:
         self.pomo.toggle(); self.pomo.save(); self._paint()
@@ -347,7 +348,7 @@ class Deck(App):
                 self._rec_state = "recording"
             except Exception as exc:
                 self._rec_state = "idle"
-                self.notify(f"can't record: {exc}", severity="error")
+                self.notify(f"can't record: {esc(exc)}", severity="error")
             self._paint()
 
     def _run_transcription(self, wav) -> None:
@@ -367,7 +368,7 @@ class Deck(App):
         self._fetch_info = {}
         if err:
             self._last_transcript = f"(error: {err})"
-            self.notify(f"transcription failed: {err}", severity="error")
+            self.notify(f"transcription failed: {esc(err)}", severity="error")
         else:
             self._last_transcript = text or "(no speech detected)"
             self.notify("transcript saved")
@@ -503,10 +504,10 @@ class Deck(App):
             try:
                 note = capture.append_capture(text)
                 self._last_saved = note.name
-                self.notify(f"saved to {note.name}")
+                self.notify(f"saved to {esc(note.name)}")
             except Exception as exc:                      # vault missing, etc.
                 self._last_saved = None
-                self.notify(f"couldn't save: {exc}", severity="error")
+                self.notify(f"couldn't save: {esc(exc)}", severity="error")
         event.input.value = ""
         self._prompt_i += 1
         event.input.placeholder = capture.pick_prompt(self._prompt_i)

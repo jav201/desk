@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.cells import cell_len
-from rich.markup import escape as esc
+from .markup import esc
 
 from . import deck
 
@@ -283,22 +283,22 @@ def render_fetching(info: dict, phase: int = 0) -> str:
     site = info.get("site") or "web"
     frac = info.get("frac")
     if frac is None:                       # probing: metadata only, nothing pulled
-        out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{site}[/dim]")
+        out.append(f"[#2dd4bf]◆[/] fetching audio   [dim]{esc(site)}[/dim]")
         spin = FETCH_SPIN[phase % len(FETCH_SPIN)]
         # a cancel pressed during the probe must show up here too, or the key
         # looks dead until the download phase starts
         note = (info.get("status") if info.get("status") == "cancelling…"
                 else "reading title & duration — no download yet")
         out.append(f"[#2dd4bf]{spin}[/] [#ffd166]{note}[/]")
-        out.append(f"[dim]{(info.get('url') or '')[:52]}[/dim]")
+        out.append(f"[dim]{esc((info.get('url') or '')[:52])}[/dim]")
         out.append("")
     else:
         pct = round(frac * 100)
         out.append(f"[#2dd4bf]◆[/] fetching audio   [#ffd166]{pct}%[/]")
         dur = f" · {_mmss(info['duration'])}" if info.get("duration") else ""
-        out.append(f"[dim]{(info.get('title') or 'audio')[:44]}{dur}[/dim]")
+        out.append(f"[dim]{esc((info.get('title') or 'audio')[:44])}{dur}[/dim]")
         out.extend(_intake_field(frac, phase))
-        out.append(f"  [dim]{info.get('status') or 'downloading…'}   {site}[/dim]")
+        out.append(f"  [dim]{esc(info.get('status') or 'downloading…')}   {esc(site)}[/dim]")
     out.append("")
     # `x` really aborts the transfer; esc only collapses the panel. Two keys,
     # two different promises — stated separately so neither is a lie.
@@ -328,8 +328,8 @@ def _whisper_label() -> str:
     except Exception:
         return "[dim]local[/dim]"
     if dev == "cuda":
-        return f"[#3fb950]GPU[/] [dim]· {model}[/dim]"
-    return f"[#ffd166]CPU[/] [dim]· {model}[/dim]"
+        return f"[#3fb950]GPU[/] [dim]· {esc(model)}[/dim]"
+    return f"[#ffd166]CPU[/] [dim]· {esc(model)}[/dim]"
 
 
 def render_tile(state: str, seconds: float = 0.0, level: float = 0.0) -> str:
@@ -381,7 +381,7 @@ def render_body(state: str, seconds: float = 0.0, level: float = 0.0,
         out.append(f"[dim]whisper:[/dim] {_whisper_label()}")
         if last:
             preview = last[:220] + ("…" if len(last) > 220 else "")
-            out += ["", "[dim]last transcript:[/dim]", preview]
+            out += ["", "[dim]last transcript:[/dim]", esc(preview)]
     out += ["", "[#ff8c42]▲[/] [dim]recording may require participants' consent[/dim]"]
     return "\n".join(out)
 
