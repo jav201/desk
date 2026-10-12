@@ -17,7 +17,7 @@ deck actually resizes.
 
 - Repo is **not a git remote clone with a live origin** for this work: operator directive is
   *work directly on `main`, commit per increment, NEVER push*. No `git fetch` / rebase step applies.
-- `main` @ **`4dc7ed2`** — "Backlog: carry the two LOW findings and the journal-prune gap".
+- `main` @ **`b72768f`** — "Backlog: carry the two LOW findings and the journal-prune gap".
   Verified by `git log --oneline -1`.
 - Flow revision: `~/.claude` @ **`061bf93`** ("flows: encode C-45 + publish a versioned manifest"),
   working tree clean. Flow is current — C-45 PULL discharged.

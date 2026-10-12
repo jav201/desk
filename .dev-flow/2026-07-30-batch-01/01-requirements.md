@@ -54,7 +54,7 @@ Every premise the brief and the canon assert, executed against disk. **Two are F
 |---|---|---|---|---|---|
 | P-1 | The app class is `DeskApp` and its `compose` is the paint path. | premise | ❌ **FALSE** | `desk/app.py:42` — `class Deck(App):`. There is no `DeskApp` in the tree. | Corrected: the class is `Deck`, and it **name-collides with the `deck.py` module**. Both will be in scope in `app.py`; the module is imported as `from . import deck` and referenced `deck.plan(...)`, the class stays `Deck`. Renaming the class is out of scope (11 test files import it). |
 | P-2 | `desk/deck.py` is imported by nothing. | premise | ✅ TRUE | `grep -rn` over `desk/ tests/`: the only importer is `tests/test_deck_geometry.py:9`. No file in `desk/` references it. | The gate is real. |
-| P-3 | 230 tests exist and pass on `main` @ `4dc7ed2`. | premise | ✅ TRUE | `python -m pytest -q` → `230 passed in 20.31s`, exit 0. | Baseline for the ledger. |
+| P-3 | 230 tests exist and pass on `main` @ `b72768f`. | premise | ✅ TRUE | `python -m pytest -q` → `230 passed in 20.31s`, exit 0. | Baseline for the ledger. |
 | P-4 | `_tui_synthesis/desk_final.py` is the reference for the deck rendering, portable to the app. | hypothesis | ❌ **FALSE as stated** | `desk_final.py:2310-2311` — `compose` yields exactly **one** widget, `Static(id="canvas")`; zero `Horizontal`/`Vertical`/`Grid` in 2355 lines; `:2322-2328` `paint()` writes the whole frame into it. The live app's tests pin `#stage-body`, `#tile-board/-focus/-capture/-record`, `#clock`, `#hints`. | The reference is portable as the **arithmetic and the field-prefix contract**, not as the widget architecture. See **D1**. |
 | P-5 | The reference's key bar names the shed card. | premise | ❌ FALSE | `desk_final.py:1833` — `segs.append((kit["alert"], ..., f"  +{len(shed)}"))`. It emits a **count**, not a name. Its own obligations table (`:273-275`) claims otherwise. | US-03 must build the naming; it cannot be copied. Matches the backlog's "half-met". |
 | P-6 | Opposite-sign column pairing makes the breath mean invariant. | axiom (refuted) | ❌ FALSE | Stated refuted by measurement (0.38 vs 0.17 dot-rows drift); mainline already dropped it. | **Do not reintroduce.** No pairing in this batch. |
@@ -123,7 +123,7 @@ signatures and defaults — 11 test files depend on them.
 ## Evidence checklist (Phase 0)
 
 - [x] Every candidate story carries a black-box AC at the behavior level — §2.6, AT-01..03.
-- [x] Base ref recorded before derivation — `main` @ `4dc7ed2`, `PLAN.md` §Base currency.
+- [x] Base ref recorded before derivation — `main` @ `b72768f`, `PLAN.md` §Base currency.
 - [x] Already-shipped check per story — backlog §Open "THE GATE" confirms all three are open.
 - [x] Premise table executed against disk, not cited — §2.7, 13 rows, 5 FALSE / 1 UNDECIDABLE.
 - [x] Every geometry threshold this batch keys on is **measured**, not predicted — §2.7 table.

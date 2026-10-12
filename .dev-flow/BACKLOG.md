@@ -4,34 +4,34 @@ The single cross-batch queue shared by `/dev-flow` and `/fast-dev-flow`. One
 file: shipped items get marked here, open items carry forward, nothing is
 dropped silently.
 
-- **Base ref:** `main` @ 4ef3c91 (after the wiring batch; NOT pushed — username_subject pushes)
+- **Base ref:** `main` @ 72e58ab (after the wiring batch; NOT pushed — username_subject pushes)
 - **Last refresh:** 2026-07-30 — batch `2026-07-30-batch-01` "wiring the deck" (dev-flow, on `main`)
 
 ## Shipped
 
 | Item | Batch / PR | Ref |
 |---|---|---|
-| Focus ember-hearth + deck-wide pulse | living viz | #7 · d175f73 |
+| Focus ember-hearth + deck-wide pulse | living viz | #7 · 0abc5be |
 | Gantt flow current (taskboard) | living viz | <owner>/taskboard#6 |
-| GPU auto-detect + CPU fallback + device indicator | whisper GPU | #8 · 63354ab |
-| Live VU meter (mic level, 10 fps, dB scale) | VU | #9 · 8bfa30e |
-| `desk-transcribe` CLI for existing audio files | CLI | #10 · 38a5cc7 |
-| In-app file transcription (`i` picker) | picker | #11 · 21fd4a9 |
-| Web video → audio → transcript (`u`, `i`, CLI, `[web]` extra) | THIS batch | 11f9041, 6593eba |
+| GPU auto-detect + CPU fallback + device indicator | whisper GPU | #8 · b5956ca |
+| Live VU meter (mic level, 10 fps, dB scale) | VU | #9 · 40215df |
+| `desk-transcribe` CLI for existing audio files | CLI | #10 · 35db727 |
+| In-app file transcription (`i` picker) | picker | #11 · 78b99ab |
+| Web video → audio → transcript (`u`, `i`, CLI, `[web]` extra) | THIS batch | 11c05b3, 13f3cfd |
 | Braille-intake fetch treatment + clipboard prefill on `u` | THIS batch | (operator picked C + idea 9 after seeing the prototype) |
 | Real download cancellation (`x`), partial cleaned up | web video | closes the honest gap flagged at first close |
-| Pomodoro journal (`~/.desk/pomodoros.jsonl`, append-only) | reimagining | 0d843ad |
-| Ember drains on a moving front (270/268/147 → 260/148/36) | reimagining | f9c6fc8 |
-| Register: no second person in the app's own voice | reimagining | 0ecd07e |
-| Hue ration: high priority to the glyph house, `_HIGH` deleted | reimagining | 4e77685 |
-| Deck S/M/L geometry seat (`desk/deck.py`, logic only) | reimagining | f1f0661 |
-| The day-close (`d`), reading the real journal | reimagining | 3aeb38b |
-| Ember ambient in the glyph channel, 4000 ms, level basic | reimagining | b4776fb |
+| Pomodoro journal (`~/.desk/pomodoros.jsonl`, append-only) | reimagining | 7731aea |
+| Ember drains on a moving front (270/268/147 → 260/148/36) | reimagining | 7b4f900 |
+| Register: no second person in the app's own voice | reimagining | 483ab83 |
+| Hue ration: high priority to the glyph house, `_HIGH` deleted | reimagining | a4b99e2 |
+| Deck S/M/L geometry seat (`desk/deck.py`, logic only) | reimagining | dd31224 |
+| The day-close (`d`), reading the real journal | reimagining | 3d571a9 |
+| Ember ambient in the glyph channel, 4000 ms, level basic | reimagining | ad157ef |
 | Stale rev1 frames deleted; README matches the code | reimagining | THIS commit |
-| **THE GATE — the deck is wired; `deck.py` governs the live layout** | batch-01 | c239e5e |
-| **Per-panel `render_card` S/M/L seats + `hearth_lines(rows=…)`** | batch-01 | 95a691d |
-| **A shed card is named (key bar) + marked (ribbon)** — AC-4.1 now fully met | batch-01 | c239e5e |
-| README describes the resizing deck, not the old strip | batch-01 | 4ef3c91 |
+| **THE GATE — the deck is wired; `deck.py` governs the live layout** | batch-01 | 988d0dc |
+| **Per-panel `render_card` S/M/L seats + `hearth_lines(rows=…)`** | batch-01 | ca0c425 |
+| **A shed card is named (key bar) + marked (ribbon)** — AC-4.1 now fully met | batch-01 | 988d0dc |
+| README describes the resizing deck, not the old strip | batch-01 | 72e58ab |
 
 ## Open
 
@@ -88,7 +88,7 @@ dropped silently.
 ### Decisions waiting on the operator
 - **Is `orange` dropped from the project palette?** Proposal §2.1 said yes. I did
   NOT do it: the collision it solved was orange-vs-`_HIGH`, and deleting `_HIGH`
-  (4e77685) dissolves it. Measured, `orange` now sits 90 rgb units from the one
+  (a4b99e2) dissolves it. Measured, `orange` now sits 90 rgb units from the one
   reserved hue — further than `rose` (64) or `pink` (102), which nobody proposed
   dropping. Reversible either way; say the word.
 - **`hints.py:46-49` vs `app.py:55-60`.** The hint bar tells capture mode that
